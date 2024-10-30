@@ -85,44 +85,86 @@ def get_dynamic_thresholds(
     return text_threshold, low_text
 
 
-processor = FASTPostProcessor(
-    bin_thresh=0.5, box_thresh=0.5, assume_straight_pages=True
-)
+def detect_boxes(linemap, text_threshold, low_text):
+    # From CRAFT - https://github.com/clovaai/CRAFT-pytorch
+    # Modified to return boxes and for speed, accuracy
+    img_h, img_w = linemap.shape
 
+    text_threshold, low_text = get_dynamic_thresholds(linemap, text_threshold, low_text)
 
-def detect_boxes(
-    linemap: np.ndarray, text_threshold: float, low_text: float
-) -> Tuple[List[np.ndarray], List[float]]:
-    # init FAST processor
+    text_score_comb = (linemap > low_text).astype(np.uint8)
+    label_count, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        text_score_comb, connectivity=4
+    )
 
-    # binarize the map
-    bitmap = (linemap > 0.5).astype(np.uint8)
-
-    # get boxes and scores
-    boxes = processor.bitmap_to_boxes(linemap, bitmap)
-
-    # convert relative coords to absolute
-    h, w = linemap.shape
     det = []
     confidences = []
+    max_confidence = 0
 
-    for box in boxes:
-        # extract score
-        confidence = float(box[4])
+    for k in range(1, label_count):
+        # size filtering
+        size = stats[k, cv2.CC_STAT_AREA]
+        if size < 10:
+            continue
 
-        # convert relative to absolute coords
-        x1, y1, x2, y2 = box[:4]
-        abs_box = np.array(
-            [[x1 * w, y1 * h], [x2 * w, y1 * h], [x2 * w, y2 * h], [x1 * w, y2 * h]]
-        )
+        # make segmentation map
+        x, y, w, h = stats[
+            k,
+            [cv2.CC_STAT_LEFT, cv2.CC_STAT_TOP, cv2.CC_STAT_WIDTH, cv2.CC_STAT_HEIGHT],
+        ]
 
-        det.append(abs_box)
+        try:
+            niter = int(np.sqrt(min(w, h)))
+        except ValueError:
+            niter = 0
+
+        buffer = 1
+        sx, sy = max(0, x - niter - buffer), max(0, y - niter - buffer)
+        ex, ey = min(img_w, x + w + niter + buffer), min(img_h, y + h + niter + buffer)
+
+        mask = labels[sy:ey, sx:ex] == k
+        selected_linemap = linemap[sy:ey, sx:ex][mask]
+        line_max = np.max(selected_linemap)
+
+        # thresholding
+        if line_max < text_threshold:
+            continue
+
+        segmap = mask.astype(np.uint8)
+
+        ksize = buffer + niter
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (ksize, ksize))
+        selected_segmap = cv2.dilate(segmap, kernel)
+
+        # make box
+        indices = np.nonzero(selected_segmap)
+        x_inds = indices[1] + sx
+        y_inds = indices[0] + sy
+        np_contours = np.column_stack((x_inds, y_inds))
+        rectangle = cv2.minAreaRect(np_contours)
+        box = cv2.boxPoints(rectangle)
+
+        # align diamond-shape
+        w, h = np.linalg.norm(box[0] - box[1]), np.linalg.norm(box[1] - box[2])
+        box_ratio = max(w, h) / (min(w, h) + 1e-5)
+        if abs(1 - box_ratio) <= 0.1:
+            l, r = min(np_contours[:, 0]), max(np_contours[:, 0])
+            t, b = min(np_contours[:, 1]), max(np_contours[:, 1])
+            box = np.array([[l, t], [r, t], [r, b], [l, b]], dtype=np.float32)
+
+        # make clock-wise order
+        startidx = box.sum(axis=1).argmin()
+        box = np.roll(box, 4 - startidx, 0)
+        box = np.array(box)
+
+        confidence = line_max
+        max_confidence = max(max_confidence, line_max)
+
         confidences.append(confidence)
+        det.append(box)
 
-    if len(confidences) > 0:
-        max_confidence = max(confidences)
+    if max_confidence > 0:
         confidences = [c / max_confidence for c in confidences]
-
     return det, confidences
 
 
