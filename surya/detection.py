@@ -66,7 +66,7 @@ def batch_detection(
 
     if len(current_batch) > 0:
         batches.append(current_batch)
-    logger.info(f"Time to batch images: {time() - start_time:.3f}s")
+    logger.debug(f"Time to batch images: {time() - start_time:.3f}s")
 
     for batch_idx in tqdm(range(len(batches)), desc="Detecting bboxes"):
         start_time = time()
@@ -81,23 +81,23 @@ def batch_detection(
             image_splits.extend(image_parts)
             split_index.extend([image_idx] * len(image_parts))
             split_heights.extend(split_height)
-        logger.info(f"Time to split images: {time() - start_time:.3f}s")
+        logger.debug(f"Time to split images: {time() - start_time:.3f}s")
 
         start_time = time()
         image_splits = [
             prepare_image_detection(image, processor) for image in image_splits
         ]
-        logger.info(f"Time to prepare images: {time() - start_time:.3f}s")
+        logger.debug(f"Time to prepare images: {time() - start_time:.3f}s")
 
         start_time = time()
         # Batch images in dim 0
         batch = torch.stack(image_splits, dim=0).to(model.dtype).to(model.device)
-        logger.info(f"Time to stack images: {time() - start_time:.3f}s")
+        logger.debug(f"Time to stack images: {time() - start_time:.3f}s")
 
         start_time = time()
         with torch.inference_mode():
             pred = model(pixel_values=batch)
-        logger.info(f"Time to run model: {time() - start_time:.3f}s")
+        logger.debug(f"Time to run model: {time() - start_time:.3f}s")
 
         start_time = time()
         logits = pred.logits
@@ -109,7 +109,7 @@ def batch_detection(
             )
 
         logits = logits.cpu().detach()
-        logger.info(f"Time to interpolate: {time() - start_time:.3f}s")
+        logger.debug(f"Time to interpolate: {time() - start_time:.3f}s")
 
         preds: List[torch.Tensor] = []
 
@@ -131,7 +131,7 @@ def batch_detection(
 
                 preds[idx] = heatmaps
 
-        logger.info(f"Time to process batch: {time() - start_time:.3f}s")
+        logger.debug(f"Time to process batch: {time() - start_time:.3f}s")
 
         yield preds, [orig_sizes[j] for j in batch_image_idxs]
 
@@ -183,7 +183,7 @@ def batch_text_detection(
             postprocessing_futures.append(
                 parallel_get_lines((pred[0], pred[1]), orig_size)
             )
-        logger.info(f"Time to postprocess: {time() - start_time:.3f}s")
+        logger.debug(f"Time to postprocess: {time() - start_time:.3f}s")
     return postprocessing_futures
 
     # with ProcessPoolExecutor(
