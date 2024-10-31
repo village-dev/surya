@@ -27,9 +27,7 @@ dependencies = [
     "pyclipper>=1.3.0.post6",
     "python-doctr>=0.10.0",
     "pytdigest>=0.1.4",
-    "ddsketch>=3.0.1",
     "jax>=0.4.35",
-    "cupy-cuda11x>=13.3.0",
 ]
 
 [tool.uv]
