@@ -37,7 +37,14 @@ def batch_detection(
     processor: SegformerImageProcessor,
     batch_size=None,
 ) -> Generator[
-    Tuple[List[torch.Tensor], List[torch.Tensor], List[Tuple[int, int]]], None, None
+    Tuple[
+        List[torch.Tensor],
+        List[torch.Tensor],
+        List[torch.Tensor],
+        List[Tuple[int, int]],
+    ],
+    None,
+    None,
 ]:
     start_time = time()
     assert all([isinstance(image, Image.Image) for image in images])
@@ -144,10 +151,18 @@ def batch_detection(
 
         logger.debug(f"Time to process batch: {time() - start_time:.3f}s")
 
+        segment_assignments = [
+            heatmaps.cuda().argmax(dim=0).cpu().detach() for heatmaps in preds
+        ]
         preds = [x.cpu().detach() for x in preds]
         pred_p90s = [x.cpu().detach() for x in pred_p90s]
 
-        yield preds, pred_p90s, [orig_sizes[j] for j in batch_image_idxs]
+        yield (
+            preds,
+            segment_assignments,
+            pred_p90s,
+            [orig_sizes[j] for j in batch_image_idxs],
+        )
 
 
 def parallel_get_lines(
@@ -197,9 +212,11 @@ def batch_text_detection(
         and len(images) >= settings.DETECTOR_MIN_PARALLEL_THRESH
     )
 
-    for preds, pred_p90s, orig_sizes in detection_generator:
+    for preds, segment_assignments, pred_p90s, orig_sizes in detection_generator:
         start_time = time()
-        for pred, pred_p90, orig_size in zip(preds, pred_p90s, orig_sizes):
+        for pred, segment_assignment, pred_p90, orig_size in zip(
+            preds, segment_assignments, pred_p90s, orig_sizes
+        ):
             postprocessing_futures.append(
                 parallel_get_lines(
                     (pred[0], pred[1]), (pred_p90[0], pred_p90[1]), orig_size

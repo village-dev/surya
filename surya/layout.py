@@ -15,14 +15,15 @@ from surya.settings import settings
 
 def get_regions_from_detection_result(
     detection_result: TextDetectionResult,
-    heatmaps: List[np.ndarray],
+    heatmaps: torch.Tensor,
     heatmap_p90s: List[float],
     orig_size: Tuple[int, int],
     id2label: List[str],
-    segment_assignment: np.ndarray,
+    segment_assignment: torch.Tensor,
     vertical_line_width: int = 20,
 ) -> List[LayoutBox]:
-    logits = np.stack(heatmaps, axis=0)
+    # logits = np.stack(heatmaps, axis=0)
+    logits = heatmaps
     vertical_line_bboxes = detection_result.vertical_lines
     line_bboxes = detection_result.bboxes
 
@@ -51,10 +52,10 @@ def get_regions_from_detection_result(
     detected_boxes: list[LayoutBox] = []
     for heatmap_idx in range(1, len(id2label)):  # Skip the blank class
         heatmap = logits[heatmap_idx]
-        if np.max(heatmap) < settings.DETECTOR_BLANK_THRESHOLD:
+        if torch.max(heatmap) < settings.DETECTOR_BLANK_THRESHOLD:
             continue
         bboxes = get_detected_boxes(
-            heatmap, heatmap_p90s[heatmap_idx], settings.DETECTOR_TEXT_THRESHOLD
+            heatmap.numpy(), heatmap_p90s[heatmap_idx], settings.DETECTOR_TEXT_THRESHOLD
         )
         bboxes = [bbox for bbox in bboxes if bbox.area > 25]
         for bb in bboxes:
@@ -207,16 +208,16 @@ def get_regions(
 
 def parallel_get_regions(
     heatmaps: torch.Tensor,
+    segment_assignment: torch.Tensor,
     heatmap_p90s: torch.Tensor,
     orig_size,
     id2label,
     detection_results: Optional[TextDetectionResult] = None,
 ) -> LayoutResult:
-    segment_assignment = heatmaps.argmax(dim=0).numpy()
     if detection_results is not None:
         bboxes = get_regions_from_detection_result(
             detection_results,
-            [x.numpy() for x in heatmaps],
+            heatmaps,
             heatmap_p90s.tolist(),
             orig_size,
             id2label,
@@ -231,7 +232,7 @@ def parallel_get_regions(
             segment_assignment,
         )
 
-    segmentation_img = Image.fromarray(segment_assignment.astype(np.uint8))
+    segmentation_img = Image.fromarray(segment_assignment.numpy().astype(np.uint8))
 
     result = LayoutResult(
         bboxes=bboxes,
@@ -282,11 +283,14 @@ def batch_layout_detection(
 
     results: List[LayoutResult] = []
     img_idx = 0
-    for preds, pred_p90s, orig_sizes in layout_generator:
-        for pred, pred_p90, orig_size in zip(preds, pred_p90s, orig_sizes):
+    for preds, segment_assignments, pred_p90s, orig_sizes in layout_generator:
+        for pred, segment_assignment, pred_p90, orig_size in zip(
+            preds, segment_assignments, pred_p90s, orig_sizes
+        ):
             results.append(
                 parallel_get_regions(
                     pred,
+                    segment_assignment,
                     pred_p90,
                     orig_size,
                     id2label,

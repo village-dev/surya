@@ -54,6 +54,7 @@ def main():
         images, model, processor, line_predictions
     )
     surya_time = time.time() - start
+    return
 
     folder_name = os.path.basename(pathname).split(".")[0]
     result_path = os.path.join(args.results_dir, folder_name)
