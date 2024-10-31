@@ -47,16 +47,27 @@ class SuryaImageProcessor(DonutImageProcessor):
             SuryaImageProcessor.align_long_axis(image, size=self.max_size)
             for image in images
         ]
-        images = [
-            x.resize(
-                (self.max_size["width"], self.max_size["height"]),
-                Image.Resampling.LANCZOS,
-            )
-            for x in images
+        # images = [
+        #     x.resize(
+        #         (self.max_size["width"], self.max_size["height"]),
+        #         Image.Resampling.BICUBIC,
+        #     )
+        #     for x in images
+        # ]
+
+        image_arrays = [
+            torchvision.transforms.functional.pil_to_tensor(img).cuda()
+            for img in images
         ]
 
         image_arrays = [
-            torchvision.transforms.functional.pil_to_tensor(img) for img in images
+            torchvision.transforms.functional.resize(
+                img,
+                [self.max_size["height"], self.max_size["width"]],
+                interpolation=torchvision.transforms.InterpolationMode.BICUBIC,
+                antialias=True,
+            )
+            for img in image_arrays
         ]
 
         # Rescale and normalize
@@ -96,6 +107,8 @@ class SuryaImageProcessor(DonutImageProcessor):
     ):
         # Convert to numpy for later processing steps
         # images = [torch.tensor(np.array(img)) for img in images]
+
+        # Convert to torch
         images = self.process_inner(images)
 
         data = {"pixel_values": images}

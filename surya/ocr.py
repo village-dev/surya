@@ -8,6 +8,7 @@ from surya.input.processing import (
     slice_bboxes_from_image,
     convert_if_not_rgb,
 )
+from surya.model.recognition.processor import SuryaImageProcessor
 from surya.postprocessing.text import sort_text_lines
 from surya.recognition import batch_recognition
 from surya.schema import TextLine, OCRResult
@@ -17,7 +18,7 @@ def run_recognition(
     images: List[Image.Image],
     langs: List[List[str] | None],
     rec_model,
-    rec_processor,
+    rec_processor: SuryaImageProcessor,
     bboxes: List[List[List[int]]] = None,
     polygons: List[List[List[List[int]]]] = None,
     batch_size=None,

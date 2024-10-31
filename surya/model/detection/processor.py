@@ -17,7 +17,7 @@ from transformers.image_utils import (
 )
 from transformers.utils import TensorType
 import torchvision
-
+import torchvision.transforms.functional
 import PIL.Image
 import torch
 

@@ -1,3 +1,4 @@
+from surya.model.recognition.encoderdecoder import OCREncoderDecoderModel
 from surya.model.recognition.processor import SuryaImageProcessor
 import torch
 from typing import List, Tuple
@@ -9,6 +10,7 @@ from surya.settings import settings
 from tqdm import tqdm
 import numpy as np
 import torch.nn.functional as F
+from transformers.image_processing_utils import BatchFeature
 
 
 def get_batch_size():
@@ -36,7 +38,7 @@ def pad_to_batch_size(tensor, batch_size):
 def batch_recognition(
     images: List[Image.Image],
     languages: List[List[str] | None],
-    model,
+    model: OCREncoderDecoderModel,
     processor: SuryaImageProcessor,
     batch_size: int | None = None,
 ) -> Tuple[List[str], List[float]]:
@@ -57,6 +59,9 @@ def batch_recognition(
 
     output_text: List[str] = []
     confidences: List[float] = []
+
+    processed_batches: List[Tuple[BatchFeature, bool]] = []
+
     for i in tqdm(range(0, len(images), batch_size), desc="Recognizing Text"):
         batch_images = images[i : i + batch_size]
         batch_images = [
@@ -67,9 +72,14 @@ def batch_recognition(
         has_math = [lang and "_math" in lang for lang in batch_langs]
 
         processed_batch = processor(
-            text=[""] * len(batch_images), images=batch_images, langs=batch_langs
+            text=[""] * len(batch_images),
+            images=batch_images,
+            langs=batch_langs,
+            device=model.device,
         )
+        processed_batches.append((processed_batch, has_math))
 
+    for processed_batch, has_math in processed_batches:
         batch_pixel_values = processed_batch["pixel_values"]
         batch_langs = processed_batch["langs"]
         batch_decoder_input = [
@@ -87,9 +97,15 @@ def batch_recognition(
 
         current_batch_size = len(batch_pixel_values)
 
-        batch_pixel_values = (
-            torch.stack(batch_pixel_values).to(model.dtype).to(model.device)
+        device_buffer = torch.empty(
+            (batch_size,) + batch_pixel_values[0].shape,
+            device=model.device,
+            dtype=model.dtype,
         )
+        for i, x in enumerate(batch_pixel_values):
+            device_buffer[i].copy_(x)
+        batch_pixel_values = device_buffer[: len(batch_pixel_values)]
+
         batch_decoder_input = torch.tensor(
             batch_decoder_input, dtype=torch.long, device=model.device
         )
