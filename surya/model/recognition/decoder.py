@@ -5,7 +5,6 @@ import torch
 import torch.nn.attention.flex_attention
 import torch.utils.checkpoint
 from torch import nn
-from torch.nn.attention import sdpa_kernel, SDPBackend
 from transformers.utils import ModelOutput
 
 from surya.model.recognition.config import (

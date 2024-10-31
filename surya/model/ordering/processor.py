@@ -1,12 +1,16 @@
 from copy import deepcopy
-from typing import Dict, Union, Optional, List, Tuple
+from typing import Dict, Union, Optional, List
 
-import torch
 from torch import TensorType
-from transformers import DonutImageProcessor, DonutProcessor
+from transformers import DonutImageProcessor
 from transformers.image_processing_utils import BatchFeature
-from transformers.image_utils import PILImageResampling, ImageInput, ChannelDimension, make_list_of_images, \
-    valid_images, to_numpy_array
+from transformers.image_utils import (
+    PILImageResampling,
+    ImageInput,
+    ChannelDimension,
+    make_list_of_images,
+    valid_images,
+)
 import numpy as np
 from PIL import Image
 import PIL
@@ -32,20 +36,27 @@ class OrderImageProcessor(DonutImageProcessor):
         self.patch_size = kwargs.get("patch_size", (4, 4))
 
     def process_inner(self, images: List[np.ndarray]):
-        images = [img.transpose(2, 0, 1) for img in images] # convert to CHW format
+        images = [img.transpose(2, 0, 1) for img in images]  # convert to CHW format
 
-        assert images[0].shape[0] == 3 # RGB input images, channel dim last
+        assert images[0].shape[0] == 3  # RGB input images, channel dim last
 
         # Convert to float32 for rescale/normalize
         images = [img.astype(np.float32) for img in images]
 
         # Rescale and normalize
         images = [
-            self.rescale(img, scale=self.rescale_factor, input_data_format=ChannelDimension.FIRST)
+            self.rescale(
+                img, scale=self.rescale_factor, input_data_format=ChannelDimension.FIRST
+            )
             for img in images
         ]
         images = [
-            self.normalize(img, mean=self.image_mean, std=self.image_std, input_data_format=ChannelDimension.FIRST)
+            self.normalize(
+                img,
+                mean=self.image_mean,
+                std=self.image_std,
+                input_data_format=ChannelDimension.FIRST,
+            )
             for img in images
         ]
 
@@ -58,7 +69,9 @@ class OrderImageProcessor(DonutImageProcessor):
         for b in boxes:
             # Left pad for generation
             padded_b = deepcopy(b)
-            padded_b.append([self.token_sep_id] * 4) # Sep token to indicate start of label predictions
+            padded_b.append(
+                [self.token_sep_id] * 4
+            )  # Sep token to indicate start of label predictions
             padded_boxes.append(padded_b)
 
         max_boxes = max(len(b) for b in padded_boxes)
@@ -76,8 +89,12 @@ class OrderImageProcessor(DonutImageProcessor):
     def resize_img_and_boxes(self, img, boxes):
         orig_dim = img.size
         new_size = (self.size["width"], self.size["height"])
-        img.thumbnail(new_size, Image.Resampling.LANCZOS)  # Shrink largest dimension to fit new size
-        img = img.resize(new_size, Image.Resampling.LANCZOS)  # Stretch smaller dimension to fit new size
+        img.thumbnail(
+            new_size, Image.Resampling.LANCZOS
+        )  # Shrink largest dimension to fit new size
+        img = img.resize(
+            new_size, Image.Resampling.LANCZOS
+        )  # Stretch smaller dimension to fit new size
 
         img = np.asarray(img, dtype=np.uint8)
 

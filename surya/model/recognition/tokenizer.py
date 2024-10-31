@@ -6,7 +6,9 @@ from surya.model.recognition.config import LANGUAGE_MAP, TOTAL_TOKENS, TOKEN_OFF
 
 
 def text_to_utf16_numbers(text):
-    utf16_bytes = text.encode('utf-16le')  # Little-endian to simplify byte order handling
+    utf16_bytes = text.encode(
+        "utf-16le"
+    )  # Little-endian to simplify byte order handling
 
     numbers = []
 
@@ -23,11 +25,11 @@ def utf16_numbers_to_text(numbers):
     byte_array = bytearray()
     for number in numbers:
         # Extract the two bytes from the number and add them to the byte array
-        byte_array.append(number & 0xFF)         # Lower byte
+        byte_array.append(number & 0xFF)  # Lower byte
         byte_array.append((number >> 8) & 0xFF)  # Upper byte
 
     try:
-        text = byte_array.decode('utf-16le', errors="ignore")
+        text = byte_array.decode("utf-16le", errors="ignore")
     except Exception as e:
         print(f"Error decoding utf16: {e}")
         text = ""
@@ -35,9 +37,15 @@ def utf16_numbers_to_text(numbers):
     return text
 
 
-def _tokenize(text: str, langs: List[str] | None, eos_token_id: int = 1, add_eos: bool = False, add_bos: bool = True):
+def _tokenize(
+    text: str,
+    langs: List[str] | None,
+    eos_token_id: int = 1,
+    add_eos: bool = False,
+    add_bos: bool = True,
+):
     tokens = text_to_utf16_numbers(text)
-    tokens = [t + TOKEN_OFFSET for t in tokens] # Account for special pad, etc, tokens
+    tokens = [t + TOKEN_OFFSET for t in tokens]  # Account for special pad, etc, tokens
 
     lang_list = []
     if langs:
@@ -54,7 +62,8 @@ def _tokenize(text: str, langs: List[str] | None, eos_token_id: int = 1, add_eos
 
 
 class Byt5LangTokenizer(ByT5Tokenizer):
-    def __init__(self,
+    def __init__(
+        self,
         eos_token="</s>",
         unk_token="<unk>",
         pad_token="<pad>",
@@ -76,7 +85,13 @@ class Byt5LangTokenizer(ByT5Tokenizer):
 
         super().__init__()
 
-    def __call__(self, texts: List[str] | str, langs: List[List[str]] | List[str] | None = None, pad_token_id: int = 0, **kwargs):
+    def __call__(
+        self,
+        texts: List[str] | str,
+        langs: List[List[str]] | List[str] | None = None,
+        pad_token_id: int = 0,
+        **kwargs,
+    ):
         tokenized = []
         all_langs = []
 
@@ -116,7 +131,9 @@ class Byt5LangTokenizer(ByT5Tokenizer):
         if isinstance(token_ids, (np.ndarray, torch.Tensor)):
             token_ids = token_ids.tolist()
 
-        token_ids = [t for t in token_ids if TOKEN_OFFSET <= t < self.special_token_start]
+        token_ids = [
+            t for t in token_ids if TOKEN_OFFSET <= t < self.special_token_start
+        ]
         token_ids = [t - TOKEN_OFFSET for t in token_ids]
         text = utf16_numbers_to_text(token_ids)
         return text

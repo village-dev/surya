@@ -52,14 +52,16 @@ def latex_to_pil(latex_code, target_width, target_height, fontsize=18):
     </html>
     """
 
-    formatted_latex = latex_code.replace('\n', '\\n').replace('"', '\\"')
+    formatted_latex = latex_code.replace("\n", "\\n").replace('"', '\\"')
     with sync_playwright() as p:
         browser = p.chromium.launch()
         page = browser.new_page()
-        page.set_viewport_size({'width': target_width, 'height': target_height})
+        page.set_viewport_size({"width": target_width, "height": target_height})
 
         while fontsize <= 30:
-            html_content = html_template.replace("{content}", formatted_latex).replace("{fontsize}", str(fontsize))
+            html_content = html_template.replace("{content}", formatted_latex).replace(
+                "{fontsize}", str(fontsize)
+            )
             page.set_content(html_content)
 
             dimensions = page.evaluate("""() => {
@@ -70,13 +72,18 @@ def latex_to_pil(latex_code, target_width, target_height, fontsize=18):
                 };
             }""")
 
-            if dimensions['width'] >= target_width or dimensions['height'] >= target_height:
+            if (
+                dimensions["width"] >= target_width
+                or dimensions["height"] >= target_height
+            ):
                 fontsize -= 1
                 break
             else:
                 fontsize += 1
 
-        html_content = html_template.replace("{content}", formatted_latex).replace("{fontsize}", str(fontsize))
+        html_content = html_template.replace("{content}", formatted_latex).replace(
+            "{fontsize}", str(fontsize)
+        )
         page.set_content(html_content)
 
         screenshot_bytes = page.screenshot()

@@ -16,6 +16,7 @@ def intersection_area(box1, box2):
 
     return (x_right - x_left) * (y_bottom - y_top)
 
+
 def box_area(box):
     return (box[2] - box[0]) * (box[3] - box[1])
 
@@ -42,7 +43,9 @@ def match_boxes(preds, references):
 
     sorted_indices = np.argsort(iou_matrix, axis=None)[::-1]
     sorted_ious = iou_matrix.flatten()[sorted_indices]
-    actual_indices, predicted_indices = np.unravel_index(sorted_indices, iou_matrix.shape)
+    actual_indices, predicted_indices = np.unravel_index(
+        sorted_indices, iou_matrix.shape
+    )
 
     assigned_actual = set()
     assigned_pred = set()
@@ -52,7 +55,7 @@ def match_boxes(preds, references):
         i, j = idx
         if i not in assigned_actual and j not in assigned_pred:
             iou_val = iou_matrix[i, j]
-            if iou_val > .95: # Account for rounding on box edges
+            if iou_val > 0.95:  # Account for rounding on box edges
                 iou_val = 1.0
             matches.append((i, j, iou_val))
             assigned_actual.add(i)
@@ -65,10 +68,12 @@ def match_boxes(preds, references):
 
     return matches
 
+
 def penalized_iou_score(preds, references):
     matches = match_boxes(preds, references)
     iou = sum([match[2] for match in matches]) / len(matches)
     return iou
+
 
 def intersection_pixels(box1, box2):
     x_left = max(box1[0], box2[0])
@@ -121,7 +126,7 @@ def calculate_coverage_fast(box, other_boxes, penalize_double=False):
     return min(1, total_intersect / box_area)
 
 
-def precision_recall(preds, references, threshold=.5, workers=8, penalize_double=True):
+def precision_recall(preds, references, threshold=0.5, workers=8, penalize_double=True):
     if len(references) == 0:
         return {
             "precision": 1,

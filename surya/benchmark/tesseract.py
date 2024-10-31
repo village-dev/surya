@@ -44,7 +44,11 @@ def tesseract_ocr_parallel(imgs, bboxes, langs: List[str], cpus=None):
     tess_parallel = max(tess_parallel_cores // 2, 1)
 
     with ProcessPoolExecutor(max_workers=tess_parallel) as executor:
-        tess_text = tqdm(executor.map(tesseract_ocr, imgs, bboxes, langs), total=len(imgs), desc="Running tesseract OCR")
+        tess_text = tqdm(
+            executor.map(tesseract_ocr, imgs, bboxes, langs),
+            total=len(imgs),
+            desc="Running tesseract OCR",
+        )
         tess_text = list(tess_text)
     return tess_text
 
@@ -54,10 +58,16 @@ def tesseract_bboxes(img):
     ocr = pytesseract.image_to_data(arr_img, output_type=Output.DICT)
 
     bboxes = []
-    n_boxes = len(ocr['level'])
+    n_boxes = len(ocr["level"])
     for i in range(n_boxes):
         # It is possible to merge by line here with line number, but it gives bad results.
-        _, x, y, w, h = ocr['text'][i], ocr['left'][i], ocr['top'][i], ocr['width'][i], ocr['height'][i]
+        _, x, y, w, h = (
+            ocr["text"][i],
+            ocr["left"][i],
+            ocr["top"][i],
+            ocr["width"][i],
+            ocr["height"][i],
+        )
         bbox = (x, y, x + w, y + h)
         bboxes.append(bbox)
 
@@ -74,7 +84,11 @@ def tesseract_parallel(imgs):
     tess_parallel = max(tess_parallel_cores // 4, 1)
 
     with ProcessPoolExecutor(max_workers=tess_parallel) as executor:
-        tess_bboxes = tqdm(executor.map(tesseract_bboxes, imgs), total=len(imgs), desc="Running tesseract bbox detection")
+        tess_bboxes = tqdm(
+            executor.map(tesseract_bboxes, imgs),
+            total=len(imgs),
+            desc="Running tesseract bbox detection",
+        )
         tess_bboxes = list(tess_bboxes)
     return tess_bboxes
 
@@ -173,7 +187,7 @@ TESS_CODE_TO_LANGUAGE = {
     "urd": "Urdu",
     "uzb": "Uzbek",
     "vie": "Vietnamese",
-    "yid": "Yiddish"
+    "yid": "Yiddish",
 }
 
-TESS_LANGUAGE_TO_CODE = {v:k for k,v in TESS_CODE_TO_LANGUAGE.items()}
+TESS_LANGUAGE_TO_CODE = {v: k for k, v in TESS_CODE_TO_LANGUAGE.items()}

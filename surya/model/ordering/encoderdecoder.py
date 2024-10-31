@@ -13,7 +13,7 @@ class OrderVisionEncoderDecoderModel(PreTrainedModel, GenerationMixin):
         self,
         config: Optional[PretrainedConfig] = None,
         encoder: Optional[PreTrainedModel] = None,
-        decoder: Optional[PreTrainedModel] = None
+        decoder: Optional[PreTrainedModel] = None,
     ):
         # initialize with config
         # make sure input & output embeddings is not tied
@@ -25,7 +25,9 @@ class OrderVisionEncoderDecoderModel(PreTrainedModel, GenerationMixin):
             encoder = VariableDonutSwinModel(config.encoder)
 
         if decoder is None:
-            decoder = MBartOrder(config.decoder, attn_implementation=config._attn_implementation)
+            decoder = MBartOrder(
+                config.decoder, attn_implementation=config._attn_implementation
+            )
 
         self.encoder = encoder
         self.decoder = decoder
@@ -64,12 +66,20 @@ class OrderVisionEncoderDecoderModel(PreTrainedModel, GenerationMixin):
         return_dict: Optional[bool] = None,
         **kwargs,
     ) -> Union[Tuple[torch.FloatTensor], Seq2SeqLMOutput]:
-        return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        return_dict = (
+            return_dict if return_dict is not None else self.config.use_return_dict
+        )
 
-        kwargs_encoder = {argument: value for argument, value in kwargs.items() if not argument.startswith("decoder_")}
+        kwargs_encoder = {
+            argument: value
+            for argument, value in kwargs.items()
+            if not argument.startswith("decoder_")
+        }
 
         kwargs_decoder = {
-            argument[len("decoder_") :]: value for argument, value in kwargs.items() if argument.startswith("decoder_")
+            argument[len("decoder_") :]: value
+            for argument, value in kwargs.items()
+            if argument.startswith("decoder_")
         }
 
         if encoder_outputs is None:

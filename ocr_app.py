@@ -22,10 +22,16 @@ from surya.postprocessing.text import draw_text_on_image
 from PIL import Image
 from surya.languages import CODE_TO_LANGUAGE
 from surya.input.langs import replace_lang_with_code
-from surya.schema import OCRResult, TextDetectionResult, LayoutResult, OrderResult, TableResult
+from surya.schema import (
+    OCRResult,
+    TextDetectionResult,
+    LayoutResult,
+    OrderResult,
+    TableResult,
+)
 from surya.settings import settings
 from surya.tables import batch_table_recognition
-from surya.postprocessing.util import rescale_bboxes, rescale_bbox
+from surya.postprocessing.util import rescale_bbox
 
 
 @st.cache_resource()
@@ -41,7 +47,10 @@ def load_rec_cached():
 
 @st.cache_resource()
 def load_layout_cached():
-    return load_model(checkpoint=settings.LAYOUT_MODEL_CHECKPOINT), load_processor(checkpoint=settings.LAYOUT_MODEL_CHECKPOINT)
+    return load_model(checkpoint=settings.LAYOUT_MODEL_CHECKPOINT), load_processor(
+        checkpoint=settings.LAYOUT_MODEL_CHECKPOINT
+    )
+
 
 @st.cache_resource()
 def load_order_cached():
@@ -65,7 +74,9 @@ def layout_detection(img) -> (Image.Image, LayoutResult):
     pred = batch_layout_detection([img], layout_model, layout_processor, [det_pred])[0]
     polygons = [p.polygon for p in pred.bboxes]
     labels = [p.label for p in pred.bboxes]
-    layout_img = draw_polys_on_image(polygons, img.copy(), labels=labels, label_font_size=18)
+    layout_img = draw_polys_on_image(
+        polygons, img.copy(), labels=labels, label_font_size=18
+    )
     return layout_img, pred
 
 
@@ -75,24 +86,33 @@ def order_detection(img) -> (Image.Image, OrderResult):
     pred = batch_ordering([img], [bboxes], order_model, order_processor)[0]
     polys = [l.polygon for l in pred.bboxes]
     positions = [str(l.position) for l in pred.bboxes]
-    order_img = draw_polys_on_image(polys, img.copy(), labels=positions, label_font_size=18)
+    order_img = draw_polys_on_image(
+        polys, img.copy(), labels=positions, label_font_size=18
+    )
     return order_img, pred
 
 
-def table_recognition(img, highres_img, filepath, page_idx: int, use_pdf_boxes: bool, skip_table_detection: bool) -> (Image.Image, List[TableResult]):
+def table_recognition(
+    img,
+    highres_img,
+    filepath,
+    page_idx: int,
+    use_pdf_boxes: bool,
+    skip_table_detection: bool,
+) -> (Image.Image, List[TableResult]):
     if skip_table_detection:
         layout_tables = [(0, 0, highres_img.size[0], highres_img.size[1])]
         table_imgs = [highres_img]
     else:
         _, layout_pred = layout_detection(img)
-        layout_tables_lowres = [l.bbox for l in layout_pred.bboxes if l.label == "Table"]
+        layout_tables_lowres = [
+            l.bbox for l in layout_pred.bboxes if l.label == "Table"
+        ]
         table_imgs = []
         layout_tables = []
         for tb in layout_tables_lowres:
             highres_bbox = rescale_bbox(tb, img.size, highres_img.size)
-            table_imgs.append(
-                highres_img.crop(highres_bbox)
-            )
+            table_imgs.append(highres_img.crop(highres_bbox))
             layout_tables.append(highres_bbox)
 
     try:
@@ -104,9 +124,14 @@ def table_recognition(img, highres_img, filepath, page_idx: int, use_pdf_boxes: 
 
     if not use_pdf_boxes or any(len(tb) == 0 for tb in table_bboxes):
         det_results = batch_text_detection(table_imgs, det_model, det_processor)
-        table_bboxes = [[{"bbox": tb.bbox, "text": None} for tb in det_result.bboxes] for det_result in det_results]
+        table_bboxes = [
+            [{"bbox": tb.bbox, "text": None} for tb in det_result.bboxes]
+            for det_result in det_results
+        ]
 
-    table_preds = batch_table_recognition(table_imgs, table_bboxes, table_model, table_processor)
+    table_preds = batch_table_recognition(
+        table_imgs, table_bboxes, table_model, table_processor
+    )
     table_img = img.copy()
 
     for results, table_bbox in zip(table_preds, layout_tables):
@@ -115,29 +140,47 @@ def table_recognition(img, highres_img, filepath, page_idx: int, use_pdf_boxes: 
         colors = []
 
         for item in results.rows + results.cols:
-            adjusted_bboxes.append([
-                (item.bbox[0] + table_bbox[0]),
-                (item.bbox[1] + table_bbox[1]),
-                (item.bbox[2] + table_bbox[0]),
-                (item.bbox[3] + table_bbox[1])
-            ])
+            adjusted_bboxes.append(
+                [
+                    (item.bbox[0] + table_bbox[0]),
+                    (item.bbox[1] + table_bbox[1]),
+                    (item.bbox[2] + table_bbox[0]),
+                    (item.bbox[3] + table_bbox[1]),
+                ]
+            )
             labels.append(item.label)
             if hasattr(item, "row_id"):
                 colors.append("blue")
             else:
                 colors.append("red")
-        table_img = draw_bboxes_on_image(adjusted_bboxes, highres_img, labels=labels, label_font_size=18, color=colors)
+        table_img = draw_bboxes_on_image(
+            adjusted_bboxes,
+            highres_img,
+            labels=labels,
+            label_font_size=18,
+            color=colors,
+        )
     return table_img, table_preds
 
 
 # Function for OCR
 def ocr(img, highres_img, langs: List[str]) -> (Image.Image, OCRResult):
     replace_lang_with_code(langs)
-    img_pred = run_ocr([img], [langs], det_model, det_processor, rec_model, rec_processor, highres_images=[highres_img])[0]
+    img_pred = run_ocr(
+        [img],
+        [langs],
+        det_model,
+        det_processor,
+        rec_model,
+        rec_processor,
+        highres_images=[highres_img],
+    )[0]
 
     bboxes = [l.bbox for l in img_pred.text_lines]
     text = [l.text for l in img_pred.text_lines]
-    rec_img = draw_text_on_image(bboxes, text, img.size, langs, has_math="_math" in langs)
+    rec_img = draw_text_on_image(
+        bboxes, text, img.size, langs, has_math="_math" in langs
+    )
     return rec_img, img_pred
 
 
@@ -166,7 +209,7 @@ def page_count(pdf_file):
 
 
 st.set_page_config(layout="wide")
-col1, col2 = st.columns([.5, .5])
+col1, col2 = st.columns([0.5, 0.5])
 
 det_model, det_processor = load_det_cached()
 rec_model, rec_processor = load_rec_cached()
@@ -189,8 +232,16 @@ Notes:
 Find the project [here](https://github.com/VikParuchuri/surya).
 """)
 
-in_file = st.sidebar.file_uploader("PDF file or image:", type=["pdf", "png", "jpg", "jpeg", "gif", "webp"])
-languages = st.sidebar.multiselect("Languages", sorted(list(CODE_TO_LANGUAGE.values())), default=[], max_selections=4, help="Select the languages in the image (if known) to improve OCR accuracy.  Optional.")
+in_file = st.sidebar.file_uploader(
+    "PDF file or image:", type=["pdf", "png", "jpg", "jpeg", "gif", "webp"]
+)
+languages = st.sidebar.multiselect(
+    "Languages",
+    sorted(list(CODE_TO_LANGUAGE.values())),
+    default=[],
+    max_selections=4,
+    help="Select the languages in the image (if known) to improve OCR accuracy.  Optional.",
+)
 
 if in_file is None:
     st.stop()
@@ -199,10 +250,14 @@ filetype = in_file.type
 whole_image = False
 if "pdf" in filetype:
     page_count = page_count(in_file)
-    page_number = st.sidebar.number_input(f"Page number out of {page_count}:", min_value=1, value=1, max_value=page_count)
+    page_number = st.sidebar.number_input(
+        f"Page number out of {page_count}:", min_value=1, value=1, max_value=page_count
+    )
 
     pil_image = get_page_image(in_file, page_number, settings.IMAGE_DPI)
-    pil_image_highres = get_page_image(in_file, page_number, dpi=settings.IMAGE_DPI_HIGHRES)
+    pil_image_highres = get_page_image(
+        in_file, page_number, dpi=settings.IMAGE_DPI_HIGHRES
+    )
 else:
     pil_image = Image.open(in_file).convert("RGB")
     pil_image_highres = pil_image
@@ -213,8 +268,16 @@ text_rec = st.sidebar.button("Run OCR")
 layout_det = st.sidebar.button("Run Layout Analysis")
 order_det = st.sidebar.button("Run Reading Order")
 table_rec = st.sidebar.button("Run Table Rec")
-use_pdf_boxes = st.sidebar.checkbox("PDF table boxes", value=True, help="Table recognition only: Use the bounding boxes from the PDF file vs text detection model.")
-skip_table_detection = st.sidebar.checkbox("Skip table detection", value=False, help="Table recognition only: Skip table detection and treat the whole image/page as a table.")
+use_pdf_boxes = st.sidebar.checkbox(
+    "PDF table boxes",
+    value=True,
+    help="Table recognition only: Use the bounding boxes from the PDF file vs text detection model.",
+)
+skip_table_detection = st.sidebar.checkbox(
+    "Skip table detection",
+    value=False,
+    help="Table recognition only: Skip table detection and treat the whole image/page as a table.",
+)
 
 if pil_image is None:
     st.stop()
@@ -253,7 +316,14 @@ if order_det:
 
 
 if table_rec:
-    table_img, pred = table_recognition(pil_image, pil_image_highres, in_file, page_number - 1 if page_number else None, use_pdf_boxes, skip_table_detection)
+    table_img, pred = table_recognition(
+        pil_image,
+        pil_image_highres,
+        in_file,
+        page_number - 1 if page_number else None,
+        use_pdf_boxes,
+        skip_table_detection,
+    )
     with col1:
         st.image(table_img, caption="Table Recognition", use_column_width=True)
         st.json([p.model_dump() for p in pred], expanded=True)

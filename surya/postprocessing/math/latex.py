@@ -18,23 +18,23 @@ def fix_math(text):
 
 
 def remove_labels(text):
-    pattern = r'\\label\{[^}]*\}'
-    text = re.sub(pattern, '', text)
+    pattern = r"\\label\{[^}]*\}"
+    text = re.sub(pattern, "", text)
 
-    ref_pattern = r'\\ref\{[^}]*\}'
-    text = re.sub(ref_pattern, '', text)
+    ref_pattern = r"\\ref\{[^}]*\}"
+    text = re.sub(ref_pattern, "", text)
 
-    pageref_pattern = r'\\pageref\{[^}]*\}'
-    text = re.sub(pageref_pattern, '', text)
+    pageref_pattern = r"\\pageref\{[^}]*\}"
+    text = re.sub(pageref_pattern, "", text)
     return text
 
 
 def replace_katex_invalid(string):
     # KaTeX cannot render all LaTeX, so we need to replace some things
-    string = re.sub(r'\\tag\{.*?\}', '', string)
-    string = re.sub(r'\\(?:Bigg?|bigg?)\{(.*?)\}', r'\1', string)
-    string = re.sub(r'\\quad\\mbox\{(.*?)\}', r'\1', string)
-    string = re.sub(r'\\mbox\{(.*?)\}', r'\1', string)
+    string = re.sub(r"\\tag\{.*?\}", "", string)
+    string = re.sub(r"\\(?:Bigg?|bigg?)\{(.*?)\}", r"\1", string)
+    string = re.sub(r"\\quad\\mbox\{(.*?)\}", r"\1", string)
+    string = re.sub(r"\\mbox\{(.*?)\}", r"\1", string)
     string = remove_inner_dollars(string)
     return string
 
@@ -43,14 +43,14 @@ def remove_inner_dollars(text):
     def replace_dollar(match):
         # Replace single $ with nothing, keep $$ intact
         math_block = match.group(1)
-        return '$$' + math_block.replace('$', '') + '$$'
+        return "$$" + math_block.replace("$", "") + "$$"
 
-    pattern = r'\$\$(.*?)\$\$'
+    pattern = r"\$\$(.*?)\$\$"
     return re.sub(pattern, replace_dollar, text, flags=re.DOTALL)
 
 
 def extract_latex_with_positions(text):
-    pattern = r'(\$\$.*?\$\$|\$.*?\$)'
+    pattern = r"(\$\$.*?\$\$|\$.*?\$)"
     matches = []
     for match in re.finditer(pattern, text, re.DOTALL):
         matches.append((match.group(), match.start(), match.end()))
@@ -79,14 +79,14 @@ def slice_latex(text):
 
 def is_latex(text):
     latex_patterns = [
-        r'\\(?:begin|end)\{[a-zA-Z]*\}',
-        r'\$.*?\$',
-        r'\$\$.*?\$\$',
-        r'\\[a-zA-Z]+',
-        r'\\[^a-zA-Z]',
+        r"\\(?:begin|end)\{[a-zA-Z]*\}",
+        r"\$.*?\$",
+        r"\$\$.*?\$\$",
+        r"\\[a-zA-Z]+",
+        r"\\[^a-zA-Z]",
     ]
 
-    combined_pattern = '|'.join(latex_patterns)
+    combined_pattern = "|".join(latex_patterns)
     if re.search(combined_pattern, text, re.DOTALL):
         return True
 
@@ -121,5 +121,3 @@ def strip_fences(text):
     while text.endswith("$"):
         text = text[:-1]
     return text
-
-

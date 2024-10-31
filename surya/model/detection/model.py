@@ -22,9 +22,15 @@ from surya.model.detection.processor import SegformerImageProcessor
 from surya.settings import settings
 
 
-def load_model(checkpoint=settings.DETECTOR_MODEL_CHECKPOINT, device=settings.TORCH_DEVICE_MODEL, dtype=settings.MODEL_DTYPE):
+def load_model(
+    checkpoint=settings.DETECTOR_MODEL_CHECKPOINT,
+    device=settings.TORCH_DEVICE_MODEL,
+    dtype=settings.MODEL_DTYPE,
+):
     config = EfficientViTConfig.from_pretrained(checkpoint)
-    model = EfficientViTForSemanticSegmentation.from_pretrained(checkpoint, torch_dtype=dtype, config=config, ignore_mismatched_sizes=True)
+    model = EfficientViTForSemanticSegmentation.from_pretrained(
+        checkpoint, torch_dtype=dtype, config=config, ignore_mismatched_sizes=True
+    )
     model = model.to(device)
     model = model.eval()
     print(f"Loaded detection model {checkpoint} on device {device} with dtype {dtype}")
@@ -63,6 +69,7 @@ def get_padding(kernel_size: int, stride: int = 1, dilation: int = 1) -> int:
     padding = ((stride - 1) + dilation * (kernel_size - 1)) // 2
     return padding
 
+
 class ConvNormAct(nn.Module):
     def __init__(
         self,
@@ -73,7 +80,7 @@ class ConvNormAct(nn.Module):
         dilation=1,
         groups=1,
         bias=False,
-        dropout=0.,
+        dropout=0.0,
         norm_layer=nn.BatchNorm2d,
         act_layer=nn.ReLU,
     ):
@@ -90,7 +97,9 @@ class ConvNormAct(nn.Module):
             bias=bias,
             padding=padding,
         )
-        self.norm = norm_layer(num_features=out_channels) if norm_layer else nn.Identity()
+        self.norm = (
+            norm_layer(num_features=out_channels) if norm_layer else nn.Identity()
+        )
         self.act = act_layer(inplace=True) if act_layer is not None else nn.Identity()
 
     def forward(self, x):
@@ -318,20 +327,28 @@ class LiteMLA(nn.Module):
             norm_layer=norm_layer[0],
             act_layer=act_layer[0],
         )
-        self.aggreg = nn.ModuleList([
-            nn.Sequential(
-                nn.Conv2d(
-                    3 * total_dim,
-                    3 * total_dim,
-                    scale,
-                    padding=get_same_padding(scale),
-                    groups=3 * total_dim,
-                    bias=use_bias[0],
-                ),
-                nn.Conv2d(3 * total_dim, 3 * total_dim, 1, groups=3 * heads, bias=use_bias[0]),
-            )
-            for scale in scales
-        ])
+        self.aggreg = nn.ModuleList(
+            [
+                nn.Sequential(
+                    nn.Conv2d(
+                        3 * total_dim,
+                        3 * total_dim,
+                        scale,
+                        padding=get_same_padding(scale),
+                        groups=3 * total_dim,
+                        bias=use_bias[0],
+                    ),
+                    nn.Conv2d(
+                        3 * total_dim,
+                        3 * total_dim,
+                        1,
+                        groups=3 * heads,
+                        bias=use_bias[0],
+                    ),
+                )
+                for scale in scales
+            ]
+        )
         self.kernel_func = kernel_func(inplace=False)
 
         self.proj = ConvNormAct(
@@ -361,14 +378,16 @@ class LiteMLA(nn.Module):
         for op in self.aggreg:
             multi_scale_qkv.append(op(qkv))
         multi_scale_qkv = torch.cat(multi_scale_qkv, dim=1)
-        multi_scale_qkv = multi_scale_qkv.reshape(B, -1, 3 * self.dim, H * W).transpose(-1, -2)
+        multi_scale_qkv = multi_scale_qkv.reshape(B, -1, 3 * self.dim, H * W).transpose(
+            -1, -2
+        )
         # Shape for each is B, C, HW, head_dim
         q, k, v = multi_scale_qkv.chunk(3, dim=-1)
 
         # lightweight global attention
         q = self.kernel_func(q)
         k = self.kernel_func(k)
-        v = F.pad(v, (0, 1), mode="constant", value=1.)
+        v = F.pad(v, (0, 1), mode="constant", value=1.0)
 
         out = self._attn(q, k, v)
 
@@ -437,15 +456,15 @@ class ResidualBlock(nn.Module):
 
 
 def build_local_block(
-        in_channels: int,
-        out_channels: int,
-        stride: int,
-        kernel_size: int,
-        expand_ratio: float,
-        norm_layer: str,
-        act_layer: str,
-        fewer_norm: bool = False,
-        block_type: str = "default",
+    in_channels: int,
+    out_channels: int,
+    stride: int,
+    kernel_size: int,
+    expand_ratio: float,
+    norm_layer: str,
+    act_layer: str,
+    fewer_norm: bool = False,
+    block_type: str = "default",
 ):
     assert block_type in ["default", "large", "fused"]
     if expand_ratio == 1:
@@ -496,63 +515,81 @@ def build_local_block(
 
 
 class Stem(nn.Sequential):
-    def __init__(self, in_chs, out_chs, depth, stride, norm_layer, act_layer, block_type='default'):
+    def __init__(
+        self,
+        in_chs,
+        out_chs,
+        depth,
+        stride,
+        norm_layer,
+        act_layer,
+        block_type="default",
+    ):
         super().__init__()
         self.stride = stride
 
         self.add_module(
-            'in_conv',
+            "in_conv",
             ConvNormAct(
-                in_chs, out_chs,
-                kernel_size=stride + 1, stride=stride, norm_layer=norm_layer, act_layer=act_layer,
-            )
+                in_chs,
+                out_chs,
+                kernel_size=stride + 1,
+                stride=stride,
+                norm_layer=norm_layer,
+                act_layer=act_layer,
+            ),
         )
         stem_block = 0
         for _ in range(depth):
-            self.add_module(f'res{stem_block}', ResidualBlock(
-                build_local_block(
-                    in_channels=out_chs,
-                    out_channels=out_chs,
-                    stride=1,
-                    kernel_size=3,
-                    expand_ratio=1,
-                    norm_layer=norm_layer,
-                    act_layer=act_layer,
-                    block_type=block_type,
+            self.add_module(
+                f"res{stem_block}",
+                ResidualBlock(
+                    build_local_block(
+                        in_channels=out_chs,
+                        out_channels=out_chs,
+                        stride=1,
+                        kernel_size=3,
+                        expand_ratio=1,
+                        norm_layer=norm_layer,
+                        act_layer=act_layer,
+                        block_type=block_type,
+                    ),
+                    nn.Identity(),
                 ),
-                nn.Identity(),
-            ))
+            )
             stem_block += 1
 
 
 class EfficientVitLargeStage(nn.Module):
     def __init__(
-            self,
-            in_chs,
-            out_chs,
-            depth,
-            stride,
-            norm_layer,
-            act_layer,
-            head_dim,
-            vit_stage=False,
-            fewer_norm=False,
+        self,
+        in_chs,
+        out_chs,
+        depth,
+        stride,
+        norm_layer,
+        act_layer,
+        head_dim,
+        vit_stage=False,
+        fewer_norm=False,
     ):
         super(EfficientVitLargeStage, self).__init__()
-        blocks = [ResidualBlock(
-            build_local_block(
-                in_channels=in_chs,
-                out_channels=out_chs,
-                stride=stride,
-                kernel_size=stride + 1,
-                expand_ratio=24 if vit_stage else 16,
-                norm_layer=norm_layer,
-                act_layer=act_layer,
-                fewer_norm=vit_stage or fewer_norm,
-                block_type='default' if fewer_norm else 'fused',
-            ),
-            None,
-        )]
+        blocks = [
+            ResidualBlock(
+                build_local_block(
+                    in_channels=in_chs,
+                    out_channels=out_chs,
+                    stride=stride,
+                    kernel_size=stride + 1,
+                    expand_ratio=24 if vit_stage else 16,
+                    norm_layer=norm_layer,
+                    act_layer=act_layer,
+                    fewer_norm=vit_stage or fewer_norm,
+                    block_type="default" if fewer_norm else "fused",
+                ),
+                None,
+            )
+        ]
         in_chs = out_chs
 
         if vit_stage:
@@ -570,20 +607,22 @@ class EfficientVitLargeStage(nn.Module):
         else:
             # for stage 1, 2, 3
             for i in range(depth):
-                blocks.append(ResidualBlock(
-                    build_local_block(
-                        in_channels=in_chs,
-                        out_channels=out_chs,
-                        stride=1,
-                        kernel_size=3,
-                        expand_ratio=4,
-                        norm_layer=norm_layer,
-                        act_layer=act_layer,
-                        fewer_norm=fewer_norm,
-                        block_type='default' if fewer_norm else 'fused',
-                    ),
-                    nn.Identity(),
-                ))
+                blocks.append(
+                    ResidualBlock(
+                        build_local_block(
+                            in_channels=in_chs,
+                            out_channels=out_chs,
+                            stride=1,
+                            kernel_size=3,
+                            expand_ratio=4,
+                            norm_layer=norm_layer,
+                            act_layer=act_layer,
+                            fewer_norm=fewer_norm,
+                            block_type="default" if fewer_norm else "fused",
+                        ),
+                        nn.Identity(),
+                    )
+                )
 
         self.blocks = nn.Sequential(*blocks)
 
@@ -605,28 +644,42 @@ class EfficientVitLarge(nn.Module):
         norm_layer = partial(norm_layer, eps=self.norm_eps)
 
         # input stem
-        self.stem = Stem(config.num_channels, config.widths[0], config.depths[0], config.strides[0], norm_layer, act_layer, block_type='large')
+        self.stem = Stem(
+            config.num_channels,
+            config.widths[0],
+            config.depths[0],
+            config.strides[0],
+            norm_layer,
+            act_layer,
+            block_type="large",
+        )
         stride = config.strides[0]
 
         # stages
         self.feature_info = []
         self.stages = nn.Sequential()
         in_channels = config.widths[0]
-        for i, (w, d, s) in enumerate(zip(config.widths[1:], config.depths[1:], config.strides[1:])):
-            self.stages.append(EfficientVitLargeStage(
-                in_channels,
-                w,
-                depth=d,
-                stride=s,
-                norm_layer=norm_layer,
-                act_layer=act_layer,
-                head_dim=config.head_dim,
-                vit_stage=i >= 3,
-                fewer_norm=i >= 2,
-            ))
+        for i, (w, d, s) in enumerate(
+            zip(config.widths[1:], config.depths[1:], config.strides[1:])
+        ):
+            self.stages.append(
+                EfficientVitLargeStage(
+                    in_channels,
+                    w,
+                    depth=d,
+                    stride=s,
+                    norm_layer=norm_layer,
+                    act_layer=act_layer,
+                    head_dim=config.head_dim,
+                    vit_stage=i >= 3,
+                    fewer_norm=i >= 2,
+                )
+            )
             stride *= s
             in_channels = w
-            self.feature_info += [dict(num_chs=in_channels, reduction=stride, module=f'stages.{i}')]
+            self.feature_info += [
+                dict(num_chs=in_channels, reduction=stride, module=f"stages.{i}")
+            ]
 
         self.num_features = in_channels
 
@@ -691,7 +744,9 @@ class DecodeHead(EfficientViTPreTrainedModel):
         # linear layers which will unify the channel dimension of each of the encoder blocks to the same config.decoder_hidden_size
         mlps = []
         for width in config.widths[1:]:
-            mlp = DecodeMLP(input_dim=width, output_dim=config.decoder_layer_hidden_size)
+            mlp = DecodeMLP(
+                input_dim=width, output_dim=config.decoder_layer_hidden_size
+            )
             mlps.append(mlp)
         self.linear_c = nn.ModuleList(mlps)
 
@@ -706,7 +761,9 @@ class DecodeHead(EfficientViTPreTrainedModel):
         self.activation = nn.ReLU()
 
         self.dropout = nn.Dropout(config.classifier_dropout_prob)
-        self.classifier = nn.Conv2d(config.decoder_hidden_size, config.num_labels, kernel_size=1)
+        self.classifier = nn.Conv2d(
+            config.decoder_hidden_size, config.num_labels, kernel_size=1
+        )
 
         self.config = config
 
@@ -716,13 +773,18 @@ class DecodeHead(EfficientViTPreTrainedModel):
         all_hidden_states = ()
         for encoder_hidden_state, mlp in zip(encoder_hidden_states, self.linear_c):
             height, width = encoder_hidden_state.shape[2], encoder_hidden_state.shape[3]
-            encoder_hidden_state = mlp(encoder_hidden_state) # Output is B, HW, C
+            encoder_hidden_state = mlp(encoder_hidden_state)  # Output is B, HW, C
             # Permute to B, C, HW
             encoder_hidden_state = encoder_hidden_state.permute(0, 2, 1)
-            encoder_hidden_state = encoder_hidden_state.reshape(batch_size, -1, height, width)
+            encoder_hidden_state = encoder_hidden_state.reshape(
+                batch_size, -1, height, width
+            )
             # upsample
             encoder_hidden_state = nn.functional.interpolate(
-                encoder_hidden_state, size=encoder_hidden_states[0].size()[2:], mode="bilinear", align_corners=False
+                encoder_hidden_state,
+                size=encoder_hidden_states[0].size()[2:],
+                mode="bilinear",
+                align_corners=False,
             )
             all_hidden_states += (encoder_hidden_state,)
 
@@ -746,10 +808,8 @@ class EfficientViTForSemanticSegmentation(EfficientViTPreTrainedModel):
         self.post_init()
 
     def forward(
-        self,
-        pixel_values: torch.FloatTensor
+        self, pixel_values: torch.FloatTensor
     ) -> Union[Tuple, SemanticSegmenterOutput]:
-
         # Pixel values should be B,C,H,W
         encoder_hidden_states = self.vit(
             pixel_values,
@@ -761,7 +821,5 @@ class EfficientViTForSemanticSegmentation(EfficientViTPreTrainedModel):
         logits = torch.special.expit(logits)
 
         return SemanticSegmenterOutput(
-            loss=None,
-            logits=logits,
-            hidden_states=encoder_hidden_states
+            loss=None, logits=logits, hidden_states=encoder_hidden_states
         )

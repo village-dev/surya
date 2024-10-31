@@ -15,6 +15,7 @@ RESULT_DIR = os.path.join(settings.BASE_DIR, settings.RESULT_DIR)
 
 rtl_langs = ["ar", "fa", "he", "ur", "ps", "sd", "yi", "ug"]
 
+
 def polygon_to_bbox(polygon):
     x = [vertex["x"] for vertex in polygon["vertices"]]
     y = [vertex["y"] for vertex in polygon["vertices"]]
@@ -87,9 +88,17 @@ def get_line_text(response, lines, is_rtl=False):
             for paragraph in block["paragraphs"]:
                 for word in paragraph["words"]:
                     for symbol in word["symbols"]:
-                        bounds.append((symbol["boundingBox"], symbol["text"], symbol.get("property")))
+                        bounds.append(
+                            (
+                                symbol["boundingBox"],
+                                symbol["text"],
+                                symbol.get("property"),
+                            )
+                        )
 
-    bboxes = [(polygon_to_bbox(b[0]), text_with_break(b[1], b[2], is_rtl)) for b in bounds]
+    bboxes = [
+        (polygon_to_bbox(b[0]), text_with_break(b[1], b[2], is_rtl)) for b in bounds
+    ]
     line_boxes = defaultdict(list)
     for i, bbox in enumerate(bboxes):
         max_overlap_pct = 0
@@ -115,16 +124,29 @@ def get_line_text(response, lines, is_rtl=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Label text in dataset with google cloud vision.")
-    parser.add_argument("--project_id", type=str, help="Google cloud project id.", required=True)
-    parser.add_argument("--service_account", type=str, help="Path to service account json.", required=True)
-    parser.add_argument("--max", type=int, help="Maximum number of pages to label.", default=None)
+    parser = argparse.ArgumentParser(
+        description="Label text in dataset with google cloud vision."
+    )
+    parser.add_argument(
+        "--project_id", type=str, help="Google cloud project id.", required=True
+    )
+    parser.add_argument(
+        "--service_account",
+        type=str,
+        help="Path to service account json.",
+        required=True,
+    )
+    parser.add_argument(
+        "--max", type=int, help="Maximum number of pages to label.", default=None
+    )
     args = parser.parse_args()
 
     cache_dir = os.path.join(DATA_DIR, "gcloud_cache")
     os.makedirs(cache_dir, exist_ok=True)
 
-    dataset = datasets.load_dataset(settings.RECOGNITION_BENCH_DATASET_NAME, split="train")
+    dataset = datasets.load_dataset(
+        settings.RECOGNITION_BENCH_DATASET_NAME, split="train"
+    )
     client = vision.ImageAnnotatorClient.from_service_account_json(args.service_account)
 
     all_gc_lines = []

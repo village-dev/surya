@@ -4,13 +4,11 @@ import cv2
 import numpy as np
 import math
 import pypdfium2
-from PIL import Image, ImageOps, ImageDraw
+from PIL import Image, ImageOps
 from surya.model.detection.processor import SegformerImageProcessor
 import torch
 from surya.settings import settings
 import torchvision.transforms.functional
-from loguru import logger
-from time import time
 
 
 def convert_if_not_rgb(images: List[Image.Image]) -> List[Image.Image]:

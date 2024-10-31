@@ -3,9 +3,9 @@ from typing import List
 import cv2
 import numpy as np
 
-from PIL import Image, ImageDraw
+from PIL import ImageDraw
 import torch
-from surya.postprocessing.util import get_line_angle, rescale_bbox
+from surya.postprocessing.util import get_line_angle
 from surya.schema import ColumnLine
 
 

@@ -8,9 +8,14 @@ from torch import TensorType
 from transformers import DonutImageProcessor, DonutProcessor
 from transformers.image_processing_utils import BatchFeature
 from transformers.image_transforms import pad, normalize
-from transformers.image_utils import PILImageResampling, ImageInput, ChannelDimension, make_list_of_images, get_image_size
+from transformers.image_utils import (
+    PILImageResampling,
+    ImageInput,
+    ChannelDimension,
+    make_list_of_images,
+    get_image_size,
+)
 import numpy as np
-from PIL import Image
 import PIL
 from surya.model.recognition.tokenizer import Byt5LangTokenizer
 from surya.settings import settings
@@ -44,17 +49,22 @@ class SuryaImageProcessor(DonutImageProcessor):
     def numpy_resize(cls, image: np.ndarray, size, interpolation=cv2.INTER_LANCZOS4):
         max_width, max_height = size["width"], size["height"]
 
-        resized_image = cv2.resize(image, (max_width, max_height), interpolation=interpolation)
+        resized_image = cv2.resize(
+            image, (max_width, max_height), interpolation=interpolation
+        )
         resized_image = resized_image.transpose(2, 0, 1)
 
         return resized_image
 
     def process_inner(self, images: List[np.ndarray]):
-        assert images[0].shape[2] == 3 # RGB input images, channel dim last
+        assert images[0].shape[2] == 3  # RGB input images, channel dim last
 
         # This also applies the right channel dim format, to channel x height x width
-        images = [SuryaImageProcessor.numpy_resize(img, self.max_size, self.resample) for img in images]
-        assert images[0].shape[0] == 3 # RGB input images, channel dim first
+        images = [
+            SuryaImageProcessor.numpy_resize(img, self.max_size, self.resample)
+            for img in images
+        ]
+        assert images[0].shape[0] == 3  # RGB input images, channel dim first
 
         # Convert to float32 for rescale/normalize
         images = [img.astype(np.float32) for img in images]
@@ -67,7 +77,7 @@ class SuryaImageProcessor(DonutImageProcessor):
                 image=image,
                 size=max_size,
                 input_data_format=ChannelDimension.FIRST,
-                pad_value=settings.RECOGNITION_PAD_VALUE
+                pad_value=settings.RECOGNITION_PAD_VALUE,
             )
             for image in images
         ]
@@ -75,7 +85,12 @@ class SuryaImageProcessor(DonutImageProcessor):
         for idx in range(len(images)):
             images[idx] = images[idx] * self.rescale_factor
         images = [
-            SuryaImageProcessor.normalize(img, mean=self.image_mean, std=self.image_std, input_data_format=ChannelDimension.FIRST)
+            SuryaImageProcessor.normalize(
+                img,
+                mean=self.image_mean,
+                std=self.image_std,
+                input_data_format=ChannelDimension.FIRST,
+            )
             for img in images
         ]
 
@@ -134,7 +149,13 @@ class SuryaImageProcessor(DonutImageProcessor):
         pad_right = delta_width - pad_left
 
         padding = ((pad_top, pad_bottom), (pad_left, pad_right))
-        return pad(image, padding, data_format=data_format, input_data_format=input_data_format, constant_values=pad_value)
+        return pad(
+            image,
+            padding,
+            data_format=data_format,
+            input_data_format=input_data_format,
+            constant_values=pad_value,
+        )
 
     @classmethod
     def align_long_axis(
@@ -165,13 +186,20 @@ class SuryaImageProcessor(DonutImageProcessor):
         **kwargs,
     ) -> np.ndarray:
         return normalize(
-            image, mean=mean, std=std, data_format=data_format, input_data_format=input_data_format, **kwargs
+            image,
+            mean=mean,
+            std=std,
+            data_format=data_format,
+            input_data_format=input_data_format,
+            **kwargs,
         )
 
 
 class SuryaProcessor(DonutProcessor):
     def __init__(self, image_processor=None, tokenizer=None, train=False, **kwargs):
-        image_processor = SuryaImageProcessor.from_pretrained(settings.RECOGNITION_MODEL_CHECKPOINT)
+        image_processor = SuryaImageProcessor.from_pretrained(
+            settings.RECOGNITION_MODEL_CHECKPOINT
+        )
         if image_processor is None:
             raise ValueError("You need to specify an `image_processor`.")
 
@@ -179,7 +207,9 @@ class SuryaProcessor(DonutProcessor):
         super().__init__(image_processor, tokenizer)
         self.current_processor = self.image_processor
         self._in_target_context_manager = False
-        self.max_input_boxes = kwargs.get("max_input_boxes", settings.TABLE_REC_MAX_ROWS)
+        self.max_input_boxes = kwargs.get(
+            "max_input_boxes", settings.TABLE_REC_MAX_ROWS
+        )
         self.extra_input_boxes = kwargs.get("extra_input_boxes", 32)
 
     def resize_boxes(self, img, boxes):
@@ -220,7 +250,7 @@ class SuryaProcessor(DonutProcessor):
             if len(boxes[i]) > self.max_input_boxes:
                 downsample_ratio = self.max_input_boxes / len(boxes[i])
                 boxes[i] = [b for b in boxes[i] if random.random() < downsample_ratio]
-            boxes[i] = boxes[i][:self.max_input_boxes]
+            boxes[i] = boxes[i][: self.max_input_boxes]
 
         new_boxes = []
         max_len = self.max_input_boxes + self.extra_input_boxes
@@ -228,10 +258,12 @@ class SuryaProcessor(DonutProcessor):
         box_ends = []
         for i in range(len(boxes)):
             nb = self.resize_boxes(images[i], boxes[i])
-            nb = [[b + self.special_token_count for b in box] for box in nb] # shift up
-            nb = nb[:self.max_input_boxes - 1]
+            nb = [[b + self.special_token_count for b in box] for box in nb]  # shift up
+            nb = nb[: self.max_input_boxes - 1]
 
-            nb.insert(0, [self.token_row_id] * 4) # Insert special token for max rows/cols
+            nb.insert(
+                0, [self.token_row_id] * 4
+            )  # Insert special token for max rows/cols
             for _ in range(self.extra_input_boxes):
                 nb.append([self.token_unused_id] * 4)
 

@@ -1,6 +1,5 @@
 import argparse
 import collections
-import copy
 import json
 
 from surya.input.processing import convert_if_not_rgb
@@ -16,8 +15,18 @@ import datasets
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark surya reading order model.")
-    parser.add_argument("--results_dir", type=str, help="Path to JSON file with benchmark results.", default=os.path.join(settings.RESULT_DIR, "benchmark"))
-    parser.add_argument("--max", type=int, help="Maximum number of images to run benchmark on.", default=None)
+    parser.add_argument(
+        "--results_dir",
+        type=str,
+        help="Path to JSON file with benchmark results.",
+        default=os.path.join(settings.RESULT_DIR, "benchmark"),
+    )
+    parser.add_argument(
+        "--max",
+        type=int,
+        help="Maximum number of images to run benchmark on.",
+        default=None,
+    )
     args = parser.parse_args()
 
     model = load_model()
@@ -49,10 +58,7 @@ def main():
         labels = row["labels"]
         accuracy = rank_accuracy(pred_labels, labels)
         mean_accuracy += accuracy
-        page_results = {
-            "accuracy": accuracy,
-            "box_count": len(labels)
-        }
+        page_results = {"accuracy": accuracy, "box_count": len(labels)}
 
         page_metrics[idx] = page_results
 
@@ -61,14 +67,16 @@ def main():
     out_data = {
         "time": surya_time,
         "mean_accuracy": mean_accuracy,
-        "page_metrics": page_metrics
+        "page_metrics": page_metrics,
     }
 
     with open(os.path.join(result_path, "results.json"), "w+") as f:
         json.dump(out_data, f, indent=4)
 
     print(f"Mean accuracy is {mean_accuracy:.2f}.")
-    print(f"Took {surya_time / len(images):.2f} seconds per image, and {surya_time:.1f} seconds total.")
+    print(
+        f"Took {surya_time / len(images):.2f} seconds per image, and {surya_time:.1f} seconds total."
+    )
     print("Mean accuracy is the % of correct ranking pairs.")
     print(f"Wrote results to {result_path}")
 

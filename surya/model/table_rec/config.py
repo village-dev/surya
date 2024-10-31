@@ -42,7 +42,10 @@ class DonutSwinTableRecConfig(PretrainedConfig):
 
     def __init__(
         self,
-        image_size=(settings.TABLE_REC_IMAGE_SIZE["width"], settings.TABLE_REC_IMAGE_SIZE["height"]),
+        image_size=(
+            settings.TABLE_REC_IMAGE_SIZE["width"],
+            settings.TABLE_REC_IMAGE_SIZE["height"],
+        ),
         patch_size=4,
         num_channels=3,
         embed_dim=128,
@@ -121,7 +124,7 @@ class SuryaTableRecDecoderConfig(PretrainedConfig):
         w_init_variance_scale=0.01,
         init_std=0.02,
         tie_word_embeddings=False,
-        aux_heads=0, # How many n-token-ahead heads to add
+        aux_heads=0,  # How many n-token-ahead heads to add
         causal=True,
         max_classes=2 + SPECIAL_TOKENS,
         max_width=1024 + SPECIAL_TOKENS,
@@ -144,9 +147,15 @@ class SuryaTableRecDecoderConfig(PretrainedConfig):
         self.block_types = list(block_types)
         self.hidden_activation = hidden_activation
         self.head_dim = self.hidden_size // self.num_attention_heads
-        self.num_key_value_heads = num_key_value_heads if num_key_value_heads is not None else num_attention_heads
+        self.num_key_value_heads = (
+            num_key_value_heads
+            if num_key_value_heads is not None
+            else num_attention_heads
+        )
         if self.num_key_value_heads > self.num_attention_heads:
-            raise ValueError("The number of `num_key_value_heads` must be smaller than `num_attention_heads`")
+            raise ValueError(
+                "The number of `num_key_value_heads` must be smaller than `num_attention_heads`"
+            )
         self.cross_attn_layers = cross_attn_layers
         self.self_attn_layers = self_attn_layers
         self.global_attn_layers = global_attn_layers
@@ -157,7 +166,7 @@ class SuryaTableRecDecoderConfig(PretrainedConfig):
         self.init_std = init_std
         self.tie_word_embeddings = tie_word_embeddings
         self.aux_heads = aux_heads
-        self.encoder_hidden_size=encoder_hidden_size
+        self.encoder_hidden_size = encoder_hidden_size
         self.causal = causal
         self.encoder_cross_attn_layers = encoder_cross_attn_layers
         self.max_classes = max_classes
@@ -230,9 +239,15 @@ class SuryaTableRecTextEncoderConfig(PretrainedConfig):
         self.block_types = list(block_types)
         self.hidden_activation = hidden_activation
         self.head_dim = self.hidden_size // self.num_attention_heads
-        self.num_key_value_heads = num_key_value_heads if num_key_value_heads is not None else num_attention_heads
+        self.num_key_value_heads = (
+            num_key_value_heads
+            if num_key_value_heads is not None
+            else num_attention_heads
+        )
         if self.num_key_value_heads > self.num_attention_heads:
-            raise ValueError("The number of `num_key_value_heads` must be smaller than `num_attention_heads`")
+            raise ValueError(
+                "The number of `num_key_value_heads` must be smaller than `num_attention_heads`"
+            )
         self.cross_attn_layers = cross_attn_layers
         self.self_attn_layers = self_attn_layers
         self.global_attn_layers = global_attn_layers

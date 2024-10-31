@@ -1,9 +1,6 @@
-import contextlib
-
 import torch
 from typing import List, Tuple, Generator
 
-import numpy as np
 from PIL import Image
 
 from surya.model.detection.model import EfficientViTForSemanticSegmentation
@@ -18,12 +15,9 @@ from surya.input.processing import (
 from surya.schema import TextDetectionResult
 from surya.settings import settings
 from tqdm import tqdm
-from concurrent.futures import ProcessPoolExecutor
 import torch.nn.functional as F
 from loguru import logger
 from time import time
-
-from surya.util.parallel import FakeParallel
 
 
 def get_batch_size():
@@ -42,11 +36,14 @@ def batch_detection(
     model: EfficientViTForSemanticSegmentation,
     processor: SegformerImageProcessor,
     batch_size=None,
-) -> Generator[Tuple[List[torch.Tensor], List[Tuple[int, int]]], None, None]:
+) -> Generator[
+    Tuple[List[torch.Tensor], List[torch.Tensor], List[Tuple[int, int]]], None, None
+]:
     start_time = time()
     assert all([isinstance(image, Image.Image) for image in images])
     if batch_size is None:
         batch_size = get_batch_size()
+
     heatmap_count = model.config.num_labels
 
     orig_sizes = [image.size for image in images]
@@ -108,10 +105,10 @@ def batch_detection(
                 logits, size=correct_shape, mode="bilinear", align_corners=False
             )
 
-        logits = logits.cpu().detach()
         logger.debug(f"Time to interpolate: {time() - start_time:.3f}s")
 
         preds: List[torch.Tensor] = []
+        pred_p90s: List[torch.Tensor] = []
 
         start_time = time()
         for i, (idx, height) in enumerate(zip(split_index, split_heights)):
@@ -121,6 +118,15 @@ def batch_detection(
 
             if len(preds) <= idx:
                 preds.append(pred_heatmaps)
+                pred_p90s.append(
+                    torch.quantile(
+                        pred_heatmaps.view(pred_heatmaps.shape[0], -1).to(
+                            torch.float32
+                        ),
+                        0.9,
+                        dim=1,
+                    )
+                )
             else:
                 heatmaps = preds[idx]
 
@@ -130,23 +136,37 @@ def batch_detection(
                 heatmaps.extend(pred_heatmaps)
 
                 preds[idx] = heatmaps
+                pred_p90s[idx] = torch.quantile(
+                    torch.cat(heatmaps).view(len(heatmaps), -1).to(torch.float32),
+                    0.9,
+                    dim=1,
+                )
 
         logger.debug(f"Time to process batch: {time() - start_time:.3f}s")
 
-        yield preds, [orig_sizes[j] for j in batch_image_idxs]
+        preds = [x.cpu().detach() for x in preds]
+        pred_p90s = [x.cpu().detach() for x in pred_p90s]
+
+        yield preds, pred_p90s, [orig_sizes[j] for j in batch_image_idxs]
 
 
 def parallel_get_lines(
-    preds: Tuple[torch.Tensor, torch.Tensor], orig_sizes: Tuple[int, int]
+    preds: Tuple[torch.Tensor, torch.Tensor],
+    pred_p90s: Tuple[torch.Tensor, torch.Tensor],
+    orig_sizes: Tuple[int, int],
 ):
     heatmap, affinity_map = preds[0], preds[1]
+    heatmap_p90, affinity_map_p90 = pred_p90s[0], pred_p90s[1]
+
     heat_img = Image.fromarray((heatmap * 255).to(torch.uint8).numpy())
     aff_img = Image.fromarray((affinity_map * 255).to(torch.uint8).numpy())
 
     affinity_size = list(reversed(affinity_map.shape))
     heatmap_size = list(reversed(heatmap.shape))
 
-    bboxes = get_and_clean_boxes(heatmap.numpy(), heatmap_size, orig_sizes)
+    bboxes = get_and_clean_boxes(
+        heatmap.numpy(), heatmap_p90.item(), heatmap_size, orig_sizes
+    )
 
     vertical_lines = get_vertical_lines(affinity_map, affinity_size, orig_sizes)
 
@@ -177,11 +197,13 @@ def batch_text_detection(
         and len(images) >= settings.DETECTOR_MIN_PARALLEL_THRESH
     )
 
-    for preds, orig_sizes in detection_generator:
+    for preds, pred_p90s, orig_sizes in detection_generator:
         start_time = time()
-        for pred, orig_size in zip(preds, orig_sizes):
+        for pred, pred_p90, orig_size in zip(preds, pred_p90s, orig_sizes):
             postprocessing_futures.append(
-                parallel_get_lines((pred[0], pred[1]), orig_size)
+                parallel_get_lines(
+                    (pred[0], pred[1]), (pred_p90[0], pred_p90[1]), orig_size
+                )
             )
         logger.debug(f"Time to postprocess: {time() - start_time:.3f}s")
     return postprocessing_futures

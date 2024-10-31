@@ -1,8 +1,7 @@
 import torch
-from transformers import DetrFeatureExtractor, AutoModelForObjectDetection
+from transformers import AutoModelForObjectDetection
 from surya.settings import settings
 
-from PIL import Image
 import numpy as np
 
 
@@ -14,7 +13,9 @@ class MaxResize(object):
         width, height = image.size
         current_max_size = max(width, height)
         scale = self.max_size / current_max_size
-        resized_image = image.resize((int(round(scale * width)), int(round(scale * height))))
+        resized_image = image.resize(
+            (int(round(scale * width)), int(round(scale * height)))
+        )
 
         return resized_image
 
@@ -62,22 +63,26 @@ def outputs_to_objects(outputs, img_sizes, id2label):
     m = outputs.logits.softmax(-1).max(-1)
     batch_labels = list(m.indices.detach().cpu().numpy())
     batch_scores = list(m.values.detach().cpu().numpy())
-    batch_bboxes = outputs['pred_boxes'].detach().cpu()
+    batch_bboxes = outputs["pred_boxes"].detach().cpu()
 
     batch_objects = []
     for i in range(len(img_sizes)):
-        pred_bboxes = [elem.tolist() for elem in rescale_bboxes(batch_bboxes[i], img_sizes[i])]
+        pred_bboxes = [
+            elem.tolist() for elem in rescale_bboxes(batch_bboxes[i], img_sizes[i])
+        ]
         pred_scores = batch_scores[i]
         pred_labels = batch_labels[i]
 
         objects = []
         for label, score, bbox in zip(pred_labels, pred_scores, pred_bboxes):
             class_label = id2label[int(label)]
-            if not class_label == 'no object':
-                objects.append({
-                    'label': class_label,
-                    'score': float(score),
-                    'bbox': [float(elem) for elem in bbox]}
+            if not class_label == "no object":
+                objects.append(
+                    {
+                        "label": class_label,
+                        "score": float(score),
+                        "bbox": [float(elem) for elem in bbox],
+                    }
                 )
 
         rows = []
@@ -88,24 +93,25 @@ def outputs_to_objects(outputs, img_sizes, id2label):
 
             if cell["label"] == "table row":
                 rows.append(cell)
-        batch_objects.append({
-            "rows": rows,
-            "cols": cols
-        })
+        batch_objects.append({"rows": rows, "cols": cols})
 
     return batch_objects
 
 
 def load_tatr():
-    return AutoModelForObjectDetection.from_pretrained("microsoft/table-transformer-structure-recognition-v1.1-all").to(settings.TORCH_DEVICE_MODEL)
+    return AutoModelForObjectDetection.from_pretrained(
+        "microsoft/table-transformer-structure-recognition-v1.1-all"
+    ).to(settings.TORCH_DEVICE_MODEL)
 
 
 def batch_inference_tatr(model, images, batch_size):
     device = model.device
     rows_cols = []
     for i in range(0, len(images), batch_size):
-        batch_images = images[i:i + batch_size]
-        pixel_values = torch.stack([structure_transform(img) for img in batch_images], dim=0).to(device)
+        batch_images = images[i : i + batch_size]
+        pixel_values = torch.stack(
+            [structure_transform(img) for img in batch_images], dim=0
+        ).to(device)
 
         # forward pass
         with torch.no_grad():
@@ -113,5 +119,7 @@ def batch_inference_tatr(model, images, batch_size):
 
         id2label = model.config.id2label
         id2label[len(model.config.id2label)] = "no object"
-        rows_cols.extend(outputs_to_objects(outputs, [img.size for img in batch_images], id2label))
+        rows_cols.extend(
+            outputs_to_objects(outputs, [img.size for img in batch_images], id2label)
+        )
     return rows_cols

@@ -1,12 +1,9 @@
-import os
 from typing import List, Tuple
 
-import requests
 from PIL import Image, ImageDraw, ImageFont
 
 from surya.postprocessing.fonts import get_font_path
 from surya.schema import TextLine
-from surya.settings import settings
 from surya.postprocessing.math.latex import is_latex
 
 
@@ -15,7 +12,14 @@ def sort_text_lines(lines: List[TextLine] | List[dict], tolerance=1.25):
     # be used as a starting point for more advanced sorting.
     vertical_groups = {}
     for line in lines:
-        group_key = round(line.bbox[1] if isinstance(line, TextLine) else line["bbox"][1] / tolerance) * tolerance
+        group_key = (
+            round(
+                line.bbox[1]
+                if isinstance(line, TextLine)
+                else line["bbox"][1] / tolerance
+            )
+            * tolerance
+        )
         if group_key not in vertical_groups:
             vertical_groups[group_key] = []
         vertical_groups[group_key].append(line)
@@ -23,7 +27,9 @@ def sort_text_lines(lines: List[TextLine] | List[dict], tolerance=1.25):
     # Sort each group horizontally and flatten the groups into a single list
     sorted_lines = []
     for _, group in sorted(vertical_groups.items()):
-        sorted_group = sorted(group, key=lambda x: x.bbox[0] if isinstance(x, TextLine) else x["bbox"][0])
+        sorted_group = sorted(
+            group, key=lambda x: x.bbox[0] if isinstance(x, TextLine) else x["bbox"][0]
+        )
         sorted_lines.extend(sorted_group)
 
     return sorted_lines
@@ -57,7 +63,7 @@ def truncate_repetitions(text: str, min_len=15):
     while text_to_truncate.endswith(lcs):
         text_to_truncate = text_to_truncate[:-max_rep_len]
 
-    return text[:len(text_to_truncate)]
+    return text[: len(text_to_truncate)]
 
 
 def get_text_size(text, font):
@@ -84,23 +90,35 @@ def render_text(draw, text, s_bbox, bbox_width, bbox_height, font_path, box_font
 
 
 def render_math(image, draw, text, s_bbox, bbox_width, bbox_height, font_path):
-        try:
-            from surya.postprocessing.math.render import latex_to_pil
-            box_font_size = max(10, min(int(.2 * bbox_height), 24))
-            img = latex_to_pil(text, bbox_width, bbox_height, fontsize=box_font_size)
-            img.thumbnail((bbox_width, bbox_height))
-            image.paste(img, (s_bbox[0], s_bbox[1]))
-        except Exception as e:
-            print(f"Failed to render math: {e}")
-            box_font_size = max(10, min(int(.75 * bbox_height), 24))
-            render_text(draw, text, s_bbox, bbox_width, bbox_height, font_path, box_font_size)
+    try:
+        from surya.postprocessing.math.render import latex_to_pil
+
+        box_font_size = max(10, min(int(0.2 * bbox_height), 24))
+        img = latex_to_pil(text, bbox_width, bbox_height, fontsize=box_font_size)
+        img.thumbnail((bbox_width, bbox_height))
+        image.paste(img, (s_bbox[0], s_bbox[1]))
+    except Exception as e:
+        print(f"Failed to render math: {e}")
+        box_font_size = max(10, min(int(0.75 * bbox_height), 24))
+        render_text(
+            draw, text, s_bbox, bbox_width, bbox_height, font_path, box_font_size
+        )
 
 
-def draw_text_on_image(bboxes, texts, image_size: Tuple[int, int], langs: List[str], font_path=None, max_font_size=60, res_upscale=2, has_math=False):
+def draw_text_on_image(
+    bboxes,
+    texts,
+    image_size: Tuple[int, int],
+    langs: List[str],
+    font_path=None,
+    max_font_size=60,
+    res_upscale=2,
+    has_math=False,
+):
     if font_path is None:
         font_path = get_font_path(langs)
     new_image_size = (image_size[0] * res_upscale, image_size[1] * res_upscale)
-    image = Image.new('RGB', new_image_size, color='white')
+    image = Image.new("RGB", new_image_size, color="white")
     draw = ImageDraw.Draw(image)
 
     for bbox, text in zip(bboxes, texts):
@@ -112,7 +130,9 @@ def draw_text_on_image(bboxes, texts, image_size: Tuple[int, int], langs: List[s
         if has_math and is_latex(text):
             render_math(image, draw, text, s_bbox, bbox_width, bbox_height, font_path)
         else:
-            box_font_size = max(6, min(int(.75 * bbox_height), max_font_size))
-            render_text(draw, text, s_bbox, bbox_width, bbox_height, font_path, box_font_size)
+            box_font_size = max(6, min(int(0.75 * bbox_height), max_font_size))
+            render_text(
+                draw, text, s_bbox, bbox_width, bbox_height, font_path, box_font_size
+            )
 
     return image

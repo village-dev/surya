@@ -1,5 +1,4 @@
-from time import time
-from typing import List, Tuple, Union
+from typing import List, Tuple
 
 import numpy as np
 import cv2
@@ -9,9 +8,7 @@ from surya.postprocessing.fonts import get_font_path
 from surya.schema import PolygonBox
 from surya.settings import settings
 from surya.postprocessing.text import get_text_size
-from loguru import logger
-from shapely.geometry import Polygon
-from doctr.models.detection.fast.base import FASTPostProcessor
+import torch
 
 
 def keep_largest_boxes(boxes: List[PolygonBox]) -> List[PolygonBox]:
@@ -71,12 +68,19 @@ def clean_boxes(boxes: List[PolygonBox]) -> List[PolygonBox]:
 
 
 def get_dynamic_thresholds(
-    linemap: np.ndarray, text_threshold, low_text, typical_top10_avg=0.7
+    linemap: np.ndarray,
+    linemap_p90: float,
+    text_threshold: float,
+    low_text: float,
+    typical_top10_avg=0.7,
 ):
+    linemap_torch = torch.from_numpy(linemap)
+    avg_intensity = torch.mean(linemap_torch[linemap_torch > linemap_p90]).item()
+
     # Find average intensity of top 10% pixels
-    flat_map = linemap.ravel()
-    top_10_count = int(len(flat_map) * 0.9)
-    avg_intensity = np.mean(np.partition(flat_map, top_10_count)[top_10_count:])
+    # flat_map = linemap.ravel()
+    # top_10_count = int(len(flat_map) * 0.9)
+    # avg_intensity = np.mean(np.partition(flat_map, top_10_count)[top_10_count:])
     scaling_factor = np.clip(avg_intensity / typical_top10_avg, 0, 1) ** (1 / 2)
 
     low_text = np.clip(low_text * scaling_factor, 0.1, 0.6)
@@ -85,12 +89,19 @@ def get_dynamic_thresholds(
     return text_threshold, low_text
 
 
-def detect_boxes(linemap, text_threshold, low_text):
+def detect_boxes(
+    linemap: np.ndarray,
+    textmap_p90: float,
+    text_threshold: float,
+    low_text: float,
+) -> Tuple[List[np.ndarray], List[float]]:
     # From CRAFT - https://github.com/clovaai/CRAFT-pytorch
     # Modified to return boxes and for speed, accuracy
     img_h, img_w = linemap.shape
 
-    text_threshold, low_text = get_dynamic_thresholds(linemap, text_threshold, low_text)
+    text_threshold, low_text = get_dynamic_thresholds(
+        linemap, textmap_p90, text_threshold, low_text
+    )
 
     text_score_comb = (linemap > low_text).astype(np.uint8)
     label_count, labels, stats, centroids = cv2.connectedComponentsWithStats(
@@ -169,7 +180,7 @@ def detect_boxes(linemap, text_threshold, low_text):
 
 
 def get_detected_boxes(
-    textmap: np.ndarray, text_threshold=None, low_text=None
+    textmap: np.ndarray, textmap_p90: float, text_threshold=None, low_text=None
 ) -> List[PolygonBox]:
     if text_threshold is None:
         text_threshold = settings.DETECTOR_TEXT_THRESHOLD
@@ -179,7 +190,7 @@ def get_detected_boxes(
 
     textmap = textmap.copy()
     # textmap = textmap.astype(np.float32)
-    boxes, confidences = detect_boxes(textmap, text_threshold, low_text)
+    boxes, confidences = detect_boxes(textmap, textmap_p90, text_threshold, low_text)
 
     # From point form to box form
     boxes = [
@@ -190,9 +201,14 @@ def get_detected_boxes(
 
 
 def get_and_clean_boxes(
-    textmap: np.ndarray, processor_size, image_size, text_threshold=None, low_text=None
+    textmap: np.ndarray,
+    textmap_p90: float,
+    processor_size,
+    image_size,
+    text_threshold=None,
+    low_text=None,
 ) -> List[PolygonBox]:
-    bboxes = get_detected_boxes(textmap, text_threshold, low_text)
+    bboxes = get_detected_boxes(textmap, textmap_p90, text_threshold, low_text)
     for bbox in bboxes:
         bbox.rescale(processor_size, image_size)
         bbox.fit_to_bounds([0, 0, image_size[0], image_size[1]])

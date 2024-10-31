@@ -31,18 +31,25 @@ def rank_elements(arr):
     return rank
 
 
-def batch_ordering(images: List, bboxes: List[List[List[float]]], model: OrderVisionEncoderDecoderModel, processor, batch_size=None) -> List[OrderResult]:
+def batch_ordering(
+    images: List,
+    bboxes: List[List[List[float]]],
+    model: OrderVisionEncoderDecoderModel,
+    processor,
+    batch_size=None,
+) -> List[OrderResult]:
     assert all([isinstance(image, Image.Image) for image in images])
     assert len(images) == len(bboxes)
     if batch_size is None:
         batch_size = get_batch_size()
 
-
     output_order = []
     for i in tqdm(range(0, len(images), batch_size), desc="Finding reading order"):
-        batch_bboxes = deepcopy(bboxes[i:i+batch_size])
-        batch_images = images[i:i+batch_size]
-        batch_images = [image.convert("RGB") for image in batch_images]  # also copies the images
+        batch_bboxes = deepcopy(bboxes[i : i + batch_size])
+        batch_images = images[i : i + batch_size]
+        batch_images = [
+            image.convert("RGB") for image in batch_images
+        ]  # also copies the images
 
         orig_sizes = [image.size for image in batch_images]
         model_inputs = processor(images=batch_images, boxes=batch_bboxes)
@@ -52,10 +59,18 @@ def batch_ordering(images: List, bboxes: List[List[List[float]]], model: OrderVi
         batch_bbox_mask = model_inputs["input_boxes_mask"]
         batch_bbox_counts = model_inputs["input_boxes_counts"]
 
-        batch_bboxes = torch.from_numpy(np.array(batch_bboxes, dtype=np.int32)).to(model.device)
-        batch_bbox_mask = torch.from_numpy(np.array(batch_bbox_mask, dtype=np.int32)).to(model.device)
-        batch_pixel_values = torch.tensor(np.array(batch_pixel_values), dtype=model.dtype).to(model.device)
-        batch_bbox_counts = torch.tensor(np.array(batch_bbox_counts), dtype=torch.long).to(model.device)
+        batch_bboxes = torch.from_numpy(np.array(batch_bboxes, dtype=np.int32)).to(
+            model.device
+        )
+        batch_bbox_mask = torch.from_numpy(
+            np.array(batch_bbox_mask, dtype=np.int32)
+        ).to(model.device)
+        batch_pixel_values = torch.tensor(
+            np.array(batch_pixel_values), dtype=model.dtype
+        ).to(model.device)
+        batch_bbox_counts = torch.tensor(
+            np.array(batch_bbox_counts), dtype=torch.long
+        ).to(model.device)
 
         token_count = 0
         past_key_values = None
@@ -79,21 +94,31 @@ def batch_ordering(images: List, bboxes: List[List[List[float]]], model: OrderVi
                 last_token_mask = []
                 min_val = torch.finfo(model.dtype).min
                 for j in range(logits.shape[0]):
-                    label_count = batch_bbox_counts[j, 1] - batch_bbox_counts[j, 0] - 1  # Subtract 1 for the sep token
+                    label_count = (
+                        batch_bbox_counts[j, 1] - batch_bbox_counts[j, 0] - 1
+                    )  # Subtract 1 for the sep token
                     new_logits = logits[j, -1]
-                    new_logits[batch_predictions[j]] = min_val  # Mask out already predicted tokens, we can only predict each token once
-                    new_logits[label_count:] = min_val  # Mask out all logit positions above the number of bboxes
+                    new_logits[batch_predictions[j]] = (
+                        min_val  # Mask out already predicted tokens, we can only predict each token once
+                    )
+                    new_logits[label_count:] = (
+                        min_val  # Mask out all logit positions above the number of bboxes
+                    )
                     pred = int(torch.argmax(new_logits, dim=-1).item())
 
                     # Add one to avoid colliding with the 1000 height/width token for bboxes
                     last_tokens.append([[pred + processor.box_size["height"] + 1] * 4])
-                    if len(batch_predictions[j]) == label_count - 1:  # Minus one since we're appending the final label
+                    if (
+                        len(batch_predictions[j]) == label_count - 1
+                    ):  # Minus one since we're appending the final label
                         last_token_mask.append([0])
                         batch_predictions[j].append(pred)
                         done[j] = True
                     elif len(batch_predictions[j]) < label_count - 1:
                         last_token_mask.append([1])
-                        batch_predictions[j].append(pred)  # Get rank prediction for given position
+                        batch_predictions[j].append(
+                            pred
+                        )  # Get rank prediction for given position
                     else:
                         last_token_mask.append([0])
 
@@ -103,14 +128,20 @@ def batch_ordering(images: List, bboxes: List[List[List[float]]], model: OrderVi
                 past_key_values = return_dict["past_key_values"]
                 encoder_outputs = (return_dict["encoder_last_hidden_state"],)
 
-                batch_bboxes = torch.tensor(last_tokens, dtype=torch.long).to(model.device)
-                token_bbox_mask = torch.tensor(last_token_mask, dtype=torch.long).to(model.device)
+                batch_bboxes = torch.tensor(last_tokens, dtype=torch.long).to(
+                    model.device
+                )
+                token_bbox_mask = torch.tensor(last_token_mask, dtype=torch.long).to(
+                    model.device
+                )
                 batch_bbox_mask = torch.cat([batch_bbox_mask, token_bbox_mask], dim=1)
                 token_count += 1
 
         for j, row_pred in enumerate(batch_predictions):
-            row_bboxes = bboxes[i+j]
-            assert len(row_pred) == len(row_bboxes), f"Mismatch between logits and bboxes. Logits: {len(row_pred)}, Bboxes: {len(row_bboxes)}"
+            row_bboxes = bboxes[i + j]
+            assert (
+                len(row_pred) == len(row_bboxes)
+            ), f"Mismatch between logits and bboxes. Logits: {len(row_pred)}, Bboxes: {len(row_bboxes)}"
 
             orig_size = orig_sizes[j]
             ranks = [0] * len(row_bboxes)
@@ -132,9 +163,3 @@ def batch_ordering(images: List, bboxes: List[List[List[float]]], model: OrderVi
             )
             output_order.append(result)
     return output_order
-
-
-
-
-
-

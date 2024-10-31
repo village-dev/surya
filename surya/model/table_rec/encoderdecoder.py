@@ -1,16 +1,10 @@
-import random
 from dataclasses import dataclass
 from typing import Optional, Union, Tuple
 
 import torch
-from torch import nn
-from torch.nn import CrossEntropyLoss
 from transformers import PreTrainedModel, VisionEncoderDecoderConfig, PretrainedConfig
-from transformers.modeling_outputs import Seq2SeqLMOutput, BaseModelOutput
-from transformers.models.vision_encoder_decoder.modeling_vision_encoder_decoder import shift_tokens_right
 from surya.model.table_rec.decoder import SuryaTableRecTextEncoder, SuryaTableRecDecoder
 from surya.model.recognition.encoder import DonutSwinModel
-import torch.nn.functional as F
 from transformers.utils import ModelOutput
 
 
@@ -45,10 +39,14 @@ class TableRecEncoderDecoderModel(PreTrainedModel):
             encoder = DonutSwinModel(config.encoder)
 
         if text_encoder is None:
-            text_encoder = SuryaTableRecTextEncoder(config.text_encoder, attn_implementation=config._attn_implementation)
+            text_encoder = SuryaTableRecTextEncoder(
+                config.text_encoder, attn_implementation=config._attn_implementation
+            )
 
         if decoder is None:
-            decoder = SuryaTableRecDecoder(config.decoder, attn_implementation=config._attn_implementation)
+            decoder = SuryaTableRecDecoder(
+                config.decoder, attn_implementation=config._attn_implementation
+            )
 
         self.encoder = encoder
         self.decoder = decoder
@@ -82,10 +80,16 @@ class TableRecEncoderDecoderModel(PreTrainedModel):
         return_dict: Optional[bool] = None,
         **kwargs,
     ) -> Union[Tuple[torch.FloatTensor], TableRecOutput]:
-        kwargs_encoder = {argument: value for argument, value in kwargs.items() if not argument.startswith("decoder_")}
+        kwargs_encoder = {
+            argument: value
+            for argument, value in kwargs.items()
+            if not argument.startswith("decoder_")
+        }
 
         kwargs_decoder = {
-            argument[len("decoder_") :]: value for argument, value in kwargs.items() if argument.startswith("decoder_")
+            argument[len("decoder_") :]: value
+            for argument, value in kwargs.items()
+            if argument.startswith("decoder_")
         }
 
         # Decode

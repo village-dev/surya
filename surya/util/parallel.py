@@ -1,4 +1,4 @@
-class FakeParallel():
+class FakeParallel:
     def __init__(self, func, *args):
         self._result = func(*args)
 
