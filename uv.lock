@@ -2538,19 +2538,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pytdigest"
-version = "0.1.4"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "pandas" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/fb/af/6c94278db5800bb24366955426fd23b7f90576edb14dfd01dffd3fe8fcec/pytdigest-0.1.4.tar.gz", hash = "sha256:573dfee19bb0f26fc1f43d8a571b513f9d8f09ff1add98ce99826357e0070f0d", size = 18624 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/22/55/7a1bd79521e99226a004665c6ef4370cbd7c4e5b17fccb2617be02eff664/pytdigest-0.1.4-cp310-cp310-manylinux_2_5_x86_64.manylinux1_x86_64.whl", hash = "sha256:e29e083ed4564fff0484ad8a9ba2e95d613bdef4d8c04caf05dbf455da76f59d", size = 28845 },
-]
-
-[[package]]
 name = "pytesseract"
 version = "0.3.13"
 source = { registry = "https://pypi.org/simple" }
@@ -3388,7 +3375,6 @@ dependencies = [
     { name = "pydantic" },
     { name = "pydantic-settings" },
     { name = "pypdfium2" },
-    { name = "pytdigest" },
     { name = "python-doctr" },
     { name = "python-dotenv" },
     { name = "rtree" },
@@ -3429,7 +3415,6 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.5.3" },
     { name = "pydantic-settings", specifier = ">=2.1.0" },
     { name = "pypdfium2", specifier = ">=4.25.0" },
-    { name = "pytdigest", specifier = ">=0.1.4" },
     { name = "python-doctr", specifier = ">=0.10.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "rtree", specifier = ">=1.3.0" },
