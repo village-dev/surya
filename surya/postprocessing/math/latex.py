@@ -1,4 +1,5 @@
 import re
+from typing import List, Tuple
 from ftfy import fix_text
 
 
@@ -6,7 +7,7 @@ def contains_math(text):
     return text.startswith("$") or text.endswith("$")
 
 
-def fix_math(text):
+def fix_math(text: str) -> str:
     # Fix any issues with the text
     text = fix_text(text)
 
@@ -17,7 +18,7 @@ def fix_math(text):
     return text
 
 
-def remove_labels(text):
+def remove_labels(text: str) -> str:
     pattern = r"\\label\{[^}]*\}"
     text = re.sub(pattern, "", text)
 
@@ -29,7 +30,7 @@ def remove_labels(text):
     return text
 
 
-def replace_katex_invalid(string):
+def replace_katex_invalid(string: str) -> str:
     # KaTeX cannot render all LaTeX, so we need to replace some things
     string = re.sub(r"\\tag\{.*?\}", "", string)
     string = re.sub(r"\\(?:Bigg?|bigg?)\{(.*?)\}", r"\1", string)
@@ -39,7 +40,7 @@ def replace_katex_invalid(string):
     return string
 
 
-def remove_inner_dollars(text):
+def remove_inner_dollars(text: str) -> str:
     def replace_dollar(match):
         # Replace single $ with nothing, keep $$ intact
         math_block = match.group(1)
@@ -49,7 +50,7 @@ def remove_inner_dollars(text):
     return re.sub(pattern, replace_dollar, text, flags=re.DOTALL)
 
 
-def extract_latex_with_positions(text):
+def extract_latex_with_positions(text: str) -> List[Tuple[str, int, int]]:
     pattern = r"(\$\$.*?\$\$|\$.*?\$)"
     matches = []
     for match in re.finditer(pattern, text, re.DOTALL):
@@ -57,7 +58,7 @@ def extract_latex_with_positions(text):
     return matches
 
 
-def slice_latex(text):
+def slice_latex(text: str) -> List[Tuple[str, int, int]]:
     # Extract LaTeX blocks along with their positions
     latex_blocks_with_positions = extract_latex_with_positions(text)
 
@@ -77,7 +78,7 @@ def slice_latex(text):
     return chunks
 
 
-def is_latex(text):
+def is_latex(text: str) -> bool:
     latex_patterns = [
         r"\\(?:begin|end)\{[a-zA-Z]*\}",
         r"\$.*?\$",
@@ -93,7 +94,7 @@ def is_latex(text):
     return False
 
 
-def fix_fences(text):
+def fix_fences(text: str) -> str:
     if text.startswith("$$") and not text.endswith("$$"):
         if text[-1] == "$":
             text += "$"
@@ -115,7 +116,7 @@ def fix_fences(text):
     return text
 
 
-def strip_fences(text):
+def strip_fences(text: str) -> str:
     while text.startswith("$"):
         text = text[1:]
     while text.endswith("$"):

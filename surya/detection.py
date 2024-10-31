@@ -1,3 +1,5 @@
+from concurrent.futures import ProcessPoolExecutor
+import contextlib
 import torch
 from typing import List, Tuple, Generator
 
@@ -18,6 +20,8 @@ from tqdm import tqdm
 import torch.nn.functional as F
 from loguru import logger
 from time import time
+
+from surya.util.parallel import FakeParallel
 
 
 def get_batch_size():
@@ -229,10 +233,17 @@ def batch_text_detection(
     #     max_workers=max_workers,
     # ) if parallelize else contextlib.nullcontext() as executor:
     #     func = executor.submit if parallelize else FakeParallel
-    #     for preds, orig_sizes in detection_generator:
-    #         for pred, orig_size in zip(preds, orig_sizes):
+    #     for preds, segment_assignments, pred_p90s, orig_sizes in detection_generator:
+    #         for pred, segment_assignment, pred_p90, orig_size in zip(
+    #             preds, segment_assignments, pred_p90s, orig_sizes
+    #         ):
     #             postprocessing_futures.append(
-    #                 func(parallel_get_lines, (pred[0], pred[1]), orig_size)
+    #                 func(
+    #                     parallel_get_lines,
+    #                     (pred[0], pred[1]),
+    #                     (pred_p90[0], pred_p90[1]),
+    #                     orig_size,
+    #                 )
     #             )
 
     # return [future.result() for future in postprocessing_futures]

@@ -1,6 +1,6 @@
 from surya.model.recognition.processor import SuryaImageProcessor
 import torch
-from typing import List
+from typing import List, Tuple
 from PIL import Image
 
 from surya.postprocessing.math.latex import fix_math, contains_math
@@ -38,8 +38,8 @@ def batch_recognition(
     languages: List[List[str] | None],
     model,
     processor: SuryaImageProcessor,
-    batch_size=None,
-):
+    batch_size: int | None = None,
+) -> Tuple[List[str], List[float]]:
     assert all([isinstance(image, Image.Image) for image in images])
     assert len(images) == len(languages)
 
@@ -55,8 +55,8 @@ def batch_recognition(
     indices = list(indices)
     images = list(images)
 
-    output_text = []
-    confidences = []
+    output_text: List[str] = []
+    confidences: List[float] = []
     for i in tqdm(range(0, len(images), batch_size), desc="Recognizing Text"):
         batch_images = images[i : i + batch_size]
         batch_images = [
@@ -91,7 +91,7 @@ def batch_recognition(
             torch.stack(batch_pixel_values).to(model.dtype).to(model.device)
         )
         batch_decoder_input = torch.tensor(
-            np.stack(batch_decoder_input, axis=0), dtype=torch.long, device=model.device
+            batch_decoder_input, dtype=torch.long, device=model.device
         )
 
         token_count = 0
@@ -117,7 +117,8 @@ def batch_recognition(
         )
         encoder_hidden_states = None
 
-        with torch.no_grad():  # inference_mode doesn't work with torch.compile
+        # inference_mode doesn't work with torch.compile, but we're not using it anyway
+        with torch.inference_mode():
             encoder_batch_size = (
                 batch_size // settings.RECOGNITION_ENCODER_BATCH_DIVISOR + 1
             )
@@ -200,9 +201,13 @@ def batch_recognition(
 
                 batch_decoder_input = preds.unsqueeze(1)
 
-                for j, (pred, status) in enumerate(zip(preds, all_done)):
-                    if not status:
-                        batch_predictions[j].append(int(pred))
+                mask = ~all_done  # inverse of all_done
+                for_append = (
+                    preds[mask].cpu().tolist()
+                )  # move to cpu once instead of per-item
+                batch_indices = mask.nonzero().squeeze(-1).tolist()
+                for idx, pred in zip(batch_indices, for_append):
+                    batch_predictions[idx].append(pred)
 
                 token_count += inference_token_count
                 inference_token_count = batch_decoder_input.shape[-1]
@@ -229,7 +234,7 @@ def batch_recognition(
         detected_text = [truncate_repetitions(dt) for dt in detected_text]
 
         # Postprocess to fix LaTeX output (add $$ signs, etc)
-        detected_text = [
+        detected_text: List[str] = [
             fix_math(text) if math and contains_math(text) else text
             for text, math in zip(detected_text, has_math)
         ]
@@ -238,8 +243,8 @@ def batch_recognition(
 
         del encoder_text_hidden_states
 
-    output_text = sorted(zip(indices, output_text), key=lambda x: x[0])
-    confidences = sorted(zip(indices, confidences), key=lambda x: x[0])
-    output_text = [text for _, text in output_text]
-    confidences = [conf for _, conf in confidences]
+    ordered_output_text = sorted(zip(indices, output_text), key=lambda x: x[0])
+    ordered_confidences = sorted(zip(indices, confidences), key=lambda x: x[0])
+    output_text = [text for _, text in ordered_output_text]
+    confidences = [conf for _, conf in ordered_confidences]
     return output_text, confidences
