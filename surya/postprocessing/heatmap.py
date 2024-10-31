@@ -159,8 +159,8 @@ def detect_boxes(
         w, h = np.linalg.norm(box[0] - box[1]), np.linalg.norm(box[1] - box[2])
         box_ratio = max(w, h) / (min(w, h) + 1e-5)
         if abs(1 - box_ratio) <= 0.1:
-            l, r = min(np_contours[:, 0]), max(np_contours[:, 0])
-            t, b = min(np_contours[:, 1]), max(np_contours[:, 1])
+            l, r = np.min(np_contours[:, 0]), np.max(np_contours[:, 0])
+            t, b = np.min(np_contours[:, 1]), np.max(np_contours[:, 1])
             box = np.array([[l, t], [r, t], [r, b], [l, b]], dtype=np.float32)
 
         # make clock-wise order
