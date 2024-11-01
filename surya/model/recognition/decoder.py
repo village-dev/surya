@@ -2,7 +2,8 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Tuple, Union
 
 import torch
-import torch.nn.attention.flex_attention
+
+# import torch.nn.attention.flex_attention
 import torch.utils.checkpoint
 from torch import nn
 from transformers.utils import ModelOutput
@@ -17,6 +18,7 @@ from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.modeling_outputs import BaseModelOutputWithNoAttention, CausalLMOutput
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
 from surya.settings import settings
+from torch.nn.attention import sdpa_kernel, SDPBackend
 
 _MAX_SQRT_GRADIENT = 1000.0
 
@@ -203,7 +205,7 @@ class SuryaOCRDecoderSdpaCrossAttention(nn.Module):
             scale=self.head_dim**-0.5,
         )
 
-        attn_output = attn_output.transpose(1, 2).contiguous()
+        attn_output = attn_output.transpose(1, 2)
         attn_output = attn_output.view(bsz, q_len, self.hidden_size)
         attn_output = self.o_proj(attn_output)
         return attn_output
@@ -255,6 +257,8 @@ class SuryaOCRDecoderSdpaAttention(nn.Module):
             base=config.rope_theta,
         )
 
+        self.scale = self.head_dim**-0.5
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -284,9 +288,6 @@ class SuryaOCRDecoderSdpaAttention(nn.Module):
         query_states, key_states = self.rotary_emb(
             query_states, key_states, position_ids, cache_position, seq_len=None
         )
-        # query_states, key_states = apply_rotary_pos_emb(
-        #     query_states, key_states, cos, sin
-        # )
 
         if use_cache and hasattr(self, "key_states"):
             cache_kwargs = {
@@ -323,10 +324,10 @@ class SuryaOCRDecoderSdpaAttention(nn.Module):
             value_states,
             attn_mask=causal_mask,
             dropout_p=self.attention_dropout if self.training else 0.0,
-            scale=self.head_dim**-0.5,
+            scale=self.scale,
         )
 
-        attn_output = attn_output.transpose(1, 2).contiguous()
+        attn_output = attn_output.transpose(1, 2)
         attn_output = attn_output.view(bsz, q_len, self.hidden_size)
         attn_output = self.o_proj(attn_output)
         return attn_output

@@ -9,7 +9,6 @@ from surya.postprocessing.text import truncate_repetitions
 from surya.settings import settings
 from tqdm import tqdm
 import torch.nn.functional as F
-from transformers.image_processing_utils import BatchFeature
 
 
 def get_batch_size():
@@ -59,15 +58,10 @@ def batch_recognition(
     output_text: List[str] = []
     confidences: List[float] = []
 
-    processed_batches: List[Tuple[BatchFeature, bool]] = []
-
     for i in tqdm(range(0, len(images), batch_size), desc="Recognizing Text"):
         batch_images = images[i : i + batch_size]
-        batch_images = [
-            image.convert("RGB") for image in batch_images
-        ]  # also copies the images
-
         batch_langs = languages[i : i + batch_size]
+
         has_math = [lang and "_math" in lang for lang in batch_langs]
 
         processed_batch = processor(
@@ -76,9 +70,7 @@ def batch_recognition(
             langs=batch_langs,
             device=model.device,
         )
-        processed_batches.append((processed_batch, has_math))
 
-    for processed_batch, has_math in processed_batches:
         batch_pixel_values = processed_batch["pixel_values"]
         batch_langs = processed_batch["langs"]
         batch_decoder_input = [
@@ -111,7 +103,6 @@ def batch_recognition(
 
         token_count = 0
         inference_token_count = batch_decoder_input.shape[-1]
-        # batch_predictions = [[] for _ in range(current_batch_size)]
         batch_predictions = torch.zeros(
             current_batch_size,
             settings.RECOGNITION_MAX_TOKENS,
@@ -232,7 +223,9 @@ def batch_recognition(
             sequence_scores != 0, dim=-1
         )
 
-        batch_predictions: List[List[int]] = [x.tolist() for x in batch_predictions]
+        batch_predictions_list: List[List[int]] = [
+            x.tolist() for x in batch_predictions
+        ]
 
         def cut_predictions(predictions: list[int]):
             try:
@@ -243,9 +236,13 @@ def batch_recognition(
             except ValueError:
                 return predictions
 
-        batch_predictions = [cut_predictions(pred) for pred in batch_predictions]
+        batch_predictions_list = [
+            cut_predictions(pred) for pred in batch_predictions_list
+        ]
 
-        detected_text = [processor.tokenizer.decode(pred) for pred in batch_predictions]
+        detected_text = [
+            processor.tokenizer.decode(pred) for pred in batch_predictions_list
+        ]
         detected_text = [
             x.split(processor.tokenizer.eos_token)[0] for x in detected_text
         ]

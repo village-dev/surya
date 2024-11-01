@@ -24,6 +24,8 @@ def load_processor():
 
 
 class SuryaImageProcessor(DonutImageProcessor):
+    tokenizer: Byt5LangTokenizer
+
     def __init__(self, *args, max_size=None, train=False, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -182,6 +184,9 @@ class SuryaImageProcessor(DonutImageProcessor):
 
 
 class SuryaProcessor(DonutProcessor):
+    tokenizer: Byt5LangTokenizer
+    image_processor: SuryaImageProcessor
+
     def __init__(self, image_processor=None, tokenizer=None, train=False, **kwargs):
         image_processor = SuryaImageProcessor.from_pretrained(
             settings.RECOGNITION_MODEL_CHECKPOINT

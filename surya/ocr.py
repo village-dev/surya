@@ -19,8 +19,8 @@ def run_recognition(
     langs: List[List[str] | None],
     rec_model,
     rec_processor: SuryaImageProcessor,
-    bboxes: List[List[List[int]]] = None,
-    polygons: List[List[List[List[int]]]] = None,
+    bboxes: List[List[tuple[int, int, int, int]]],
+    polygons: List[List[List[List[int]]]] | None = None,
     batch_size=None,
 ) -> List[OCRResult]:
     # Polygons need to be in corner format - [[x1, y1], [x2, y2], [x3, y3], [x4, y4]], bboxes in [x1, y1, x2, y2] format
@@ -125,6 +125,7 @@ def run_ocr(
 
     predictions_by_image = []
     slice_start = 0
+
     for idx, (image, det_pred, lang) in enumerate(zip(images, det_predictions, langs)):
         slice_end = slice_start + slice_map[idx]
         image_lines = rec_predictions[slice_start:slice_end]
