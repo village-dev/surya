@@ -20,7 +20,6 @@ from loguru import logger
 from time import time
 
 
-
 def get_batch_size():
     batch_size = settings.DETECTOR_BATCH_SIZE
     if batch_size is None:
@@ -181,7 +180,7 @@ def parallel_get_lines(
     heatmap_size = list(reversed(heatmap.shape))
 
     bboxes = get_and_clean_boxes(
-        heatmap.numpy(), heatmap_p90.item(), heatmap_size, orig_sizes
+        heatmap.float().numpy(), heatmap_p90.item(), heatmap_size, orig_sizes
     )
 
     vertical_lines = get_vertical_lines(affinity_map, affinity_size, orig_sizes)

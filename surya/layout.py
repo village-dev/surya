@@ -55,7 +55,9 @@ def get_regions_from_detection_result(
         if torch.max(heatmap) < settings.DETECTOR_BLANK_THRESHOLD:
             continue
         bboxes = get_detected_boxes(
-            heatmap.numpy(), heatmap_p90s[heatmap_idx], settings.DETECTOR_TEXT_THRESHOLD
+            heatmap.float().numpy(),
+            heatmap_p90s[heatmap_idx],
+            settings.DETECTOR_TEXT_THRESHOLD,
         )
         bboxes = [bbox for bbox in bboxes if bbox.area > 25]
         for bb in bboxes:
