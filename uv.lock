@@ -531,15 +531,6 @@ wheels = [
 ]
 
 [[package]]
-name = "einops"
-version = "0.8.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/79/ca/9f5dcb8bead39959454c3912266bedc4c315839cee0e0ca9f4328f4588c1/einops-0.8.0.tar.gz", hash = "sha256:63486517fed345712a8385c100cb279108d9d47e6ae59099b07657e983deae85", size = 58861 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/44/5a/f0b9ad6c0a9017e62d4735daaeb11ba3b6c009d69a26141b258cd37b5588/einops-0.8.0-py3-none-any.whl", hash = "sha256:9572fb63046264a862693b0a87088af3bdc8c068fde03de63453cbbde245465f", size = 43223 },
-]
-
-[[package]]
 name = "exceptiongroup"
 version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -589,24 +580,6 @@ name = "flameprof"
 version = "0.4"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/c0/e7/114f6710d31854b694598f577f9eac49d7f38b7fb8a55e86e2d3f848fd1c/flameprof-0.4.tar.gz", hash = "sha256:dbc86d4190cbbba624f1e0a40f44d9db96138e27534d83c8ef42d420857875a3", size = 7865 }
-
-[[package]]
-name = "flash-attn"
-version = "2.6.3"
-source = { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl" }
-dependencies = [
-    { name = "einops" },
-    { name = "torch" },
-]
-wheels = [
-    { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl", hash = "sha256:237ef9c6157db394e1ddde4ba609a21ebb98382377a27041edc09318801a6f24" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "einops" },
-    { name = "torch" },
-]
 
 [[package]]
 name = "flatbuffers"
@@ -3197,7 +3170,6 @@ version = "0.6.12"
 source = { editable = "." }
 dependencies = [
     { name = "filetype" },
-    { name = "flash-attn" },
     { name = "ftfy" },
     { name = "jax" },
     { name = "loguru" },
@@ -3237,7 +3209,6 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "filetype", specifier = ">=1.2.0" },
-    { name = "flash-attn", url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl" },
     { name = "ftfy", specifier = ">=6.1.3" },
     { name = "jax", specifier = ">=0.4.35" },
     { name = "loguru", specifier = ">=0.7.2" },

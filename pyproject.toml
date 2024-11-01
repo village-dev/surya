@@ -27,7 +27,6 @@ dependencies = [
     "pyclipper>=1.3.0.post6",
     "jax>=0.4.35",
     "rtree>=1.3.0",
-    "flash-attn",
 ]
 
 [tool.uv]
@@ -50,7 +49,6 @@ dev-dependencies = [
 
 [tool.uv.sources]
 py-spy = { git = "https://github.com/benfred/py-spy.git" }
-flash-attn = { url = "https://github.com/Dao-AILab/flash-attention/releases/download/v2.6.3/flash_attn-2.6.3+cu123torch2.4cxx11abiFALSE-cp310-cp310-linux_x86_64.whl" }
 
 [project.scripts]
 surya_detect = "detect_text:main"
