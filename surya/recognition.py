@@ -8,7 +8,6 @@ from surya.postprocessing.math.latex import fix_math, contains_math
 from surya.postprocessing.text import truncate_repetitions
 from surya.settings import settings
 from tqdm import tqdm
-import numpy as np
 import torch.nn.functional as F
 from transformers.image_processing_utils import BatchFeature
 
@@ -121,12 +120,6 @@ def batch_recognition(
         )
         prediction_idx = 0
 
-        decoder_position_ids = (
-            torch.ones_like(
-                batch_decoder_input[0, :], dtype=torch.int64, device=model.device
-            ).cumsum(0)
-            - 1
-        )
         model.decoder.model._setup_cache(
             model.config, batch_size, model.device, model.dtype
         )
@@ -186,18 +179,21 @@ def batch_recognition(
                 )
                 batch_decoder_input = pad_to_batch_size(batch_decoder_input, batch_size)
 
+            seqlen_offset = torch.tensor([0], dtype=torch.int64, device=model.device)
+
             while token_count < settings.RECOGNITION_MAX_TOKENS - 1:
                 is_prefill = token_count == 0
                 # TODO: add attention mask
                 return_dict = model.decoder(
                     input_ids=batch_decoder_input,
                     encoder_hidden_states=encoder_text_hidden_states,
-                    cache_position=decoder_position_ids,
+                    cache_position=seqlen_offset,
                     use_cache=True,
                     prefill=is_prefill,
                 )
 
-                decoder_position_ids = decoder_position_ids[-1:] + 1
+                seqlen_offset += batch_decoder_input.shape[1]
+
                 logits = return_dict["logits"][
                     :current_batch_size
                 ]  # Ignore batch padding
@@ -226,17 +222,6 @@ def batch_recognition(
 
                 token_count += inference_token_count
                 inference_token_count = batch_decoder_input.shape[-1]
-
-                max_position_id = torch.max(decoder_position_ids).item()
-                decoder_position_ids = (
-                    torch.ones_like(
-                        batch_decoder_input[0, :],
-                        dtype=torch.int64,
-                        device=model.device,
-                    ).cumsum(0)
-                    - 1
-                    + max_position_id
-                )
 
                 if settings.RECOGNITION_STATIC_CACHE:
                     batch_decoder_input = pad_to_batch_size(

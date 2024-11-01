@@ -1,5 +1,3 @@
-from concurrent.futures import ProcessPoolExecutor
-import contextlib
 import torch
 from typing import List, Tuple, Generator
 
@@ -21,7 +19,6 @@ import torch.nn.functional as F
 from loguru import logger
 from time import time
 
-from surya.util.parallel import FakeParallel
 
 
 def get_batch_size():

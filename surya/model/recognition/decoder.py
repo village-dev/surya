@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple, Union
 
-from einops import rearrange
 import torch
 import torch.nn.attention.flex_attention
 import torch.utils.checkpoint
@@ -17,9 +16,7 @@ from transformers.activations import ACT2FN
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.modeling_outputs import BaseModelOutputWithNoAttention, CausalLMOutput
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
-from flash_attn.layers.rotary import apply_rotary_emb, apply_rotary_emb_kv_
 from surya.settings import settings
-from flash_attn.ops.triton.rotary import apply_rotary
 
 _MAX_SQRT_GRADIENT = 1000.0
 
@@ -32,24 +29,6 @@ class OCRModelOutput(ModelOutput):
 
 
 class SuryaOCRDecoderRMSNorm(nn.Module):
-    # def __init__(self, dim: int, eps: float = 1e-6):
-    #     super().__init__()
-    #     self.eps = eps
-    #     self.weight = nn.Parameter(torch.zeros(dim))
-
-    # def _norm(self, x):
-    #     return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
-
-    # def forward(self, x):
-    #     output = self._norm(x.float())
-    #     # Llama does x.to(float16) * w whilst SuryaOCRDecoder is (x * w).to(float16)
-    #     # See https://github.com/huggingface/transformers/pull/29402
-    #     output = output * (1.0 + self.weight.float())
-    #     return output.type_as(x)
-
-    # def extra_repr(self):
-    #     return f"{tuple(self.weight.shape)}, eps={self.eps}"
-
     def __init__(self, hidden_size: int, eps: float = 1e-6):
         super().__init__()
         self.eps = eps
@@ -57,7 +36,7 @@ class SuryaOCRDecoderRMSNorm(nn.Module):
         self.rmsnorm = torch.nn.RMSNorm(hidden_size, eps=eps)
 
     def forward(self, x):
-        return (self.rmsnorm(x.float()) * (1.0 + self.weight.float())).type_as(x)
+        return self.rmsnorm(x) * (1.0 + self.weight)
 
 
 ALL_LAYERNORM_LAYERS.append(SuryaOCRDecoderRMSNorm)
@@ -68,24 +47,23 @@ class SuryaOCRDecoderRotaryEmbedding(nn.Module):
         super().__init__()
         self.dim = dim
         self.base = base
-        inv_freq = 1.0 / (
-            self.base
-            ** (torch.arange(0, self.dim, 2, dtype=torch.int64).float() / self.dim)
-        )
+        inv_freq = self._compute_inv_freq(device)
         self.register_buffer("inv_freq", tensor=inv_freq, persistent=False)
+
+    def _compute_inv_freq(self, device=None):
+        return 1.0 / (
+            self.base
+            ** (
+                torch.arange(0, self.dim, 2, device=device, dtype=torch.float32)
+                / self.dim
+            )
+        )
 
     @torch.no_grad()
     # Copied from transformers.models.gemma.modeling_gemma.GemmaRotaryEmbedding.forward with Gemma->SuryaOCRDecoder
-    def forward(self, q, k, position_ids, seq_len=None):
-        self.inv_freq.to(q.device)
-        inv_freq_expanded = (
-            self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
-        )
-        position_ids_expanded = position_ids[:, None, :].float()
+    def forward(self, q, k, position_ids, cache_position, seq_len=None):
+        freqs = torch.einsum("bi,j->bij", position_ids, self.inv_freq)
 
-        freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(
-            1, 2
-        )
         emb = torch.cat((freqs, freqs), dim=-1)
         cos = emb.cos()
         sin = emb.sin()
@@ -304,7 +282,7 @@ class SuryaOCRDecoderSdpaAttention(nn.Module):
         ).transpose(1, 2)
 
         query_states, key_states = self.rotary_emb(
-            query_states, key_states, position_ids, seq_len=None
+            query_states, key_states, position_ids, cache_position, seq_len=None
         )
         # query_states, key_states = apply_rotary_pos_emb(
         #     query_states, key_states, cos, sin
@@ -598,7 +576,6 @@ class SuryaOCRDecoderModel(SuryaOCRDecoderPreTrainedModel):
     def forward(
         self,
         input_ids: torch.LongTensor = None,
-        position_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         encoder_hidden_states: Optional[torch.FloatTensor] = None,
         encoder_attention_mask: Optional[torch.FloatTensor] = None,
@@ -626,6 +603,8 @@ class SuryaOCRDecoderModel(SuryaOCRDecoderPreTrainedModel):
                 hidden_states.device,
                 hidden_states.dtype,
             )
+
+        position_ids = None
 
         if cache_position is None:
             cache_position = torch.arange(
