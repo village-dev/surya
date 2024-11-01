@@ -104,7 +104,7 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def MODEL_DTYPE(self) -> torch.dtype:
-        return torch.float32 if self.TORCH_DEVICE_MODEL == "cpu" else torch.float16
+        return torch.float32 if self.TORCH_DEVICE_MODEL == "cpu" else torch.bfloat16
 
     class Config:
         env_file = find_dotenv("local.env")

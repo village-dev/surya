@@ -112,7 +112,14 @@ def batch_recognition(
 
         token_count = 0
         inference_token_count = batch_decoder_input.shape[-1]
-        batch_predictions = [[] for _ in range(current_batch_size)]
+        # batch_predictions = [[] for _ in range(current_batch_size)]
+        batch_predictions = torch.zeros(
+            current_batch_size,
+            settings.RECOGNITION_MAX_TOKENS,
+            dtype=torch.long,
+            device=model.device,
+        )
+        prediction_idx = 0
 
         decoder_position_ids = (
             torch.ones_like(
@@ -194,16 +201,13 @@ def batch_recognition(
                 logits = return_dict["logits"][
                     :current_batch_size
                 ]  # Ignore batch padding
-                aux_logits = return_dict.get("aux_logits", None)
 
-                preds = torch.argmax(logits[:, -1], dim=-1)
-                scores = torch.max(
-                    F.softmax(logits[:, -1], dim=-1), dim=-1
-                ).values.unsqueeze(1)
+                scores, preds = F.softmax(logits[:, -1], dim=-1).max(dim=-1)
+                scores = scores.unsqueeze(1)
+
                 done = (preds == processor.tokenizer.eos_id) | (
                     preds == processor.tokenizer.pad_id
                 )
-                done = done
                 all_done = all_done | done
 
                 if is_prefill:
@@ -217,16 +221,12 @@ def batch_recognition(
 
                 batch_decoder_input = preds.unsqueeze(1)
 
-                mask = ~all_done  # inverse of all_done
-                for_append = (
-                    preds[mask].cpu().tolist()
-                )  # move to cpu once instead of per-item
-                batch_indices = mask.nonzero().squeeze(-1).tolist()
-                for idx, pred in zip(batch_indices, for_append):
-                    batch_predictions[idx].append(pred)
+                batch_predictions[:, prediction_idx] = preds
+                prediction_idx += 1
 
                 token_count += inference_token_count
                 inference_token_count = batch_decoder_input.shape[-1]
+
                 max_position_id = torch.max(decoder_position_ids).item()
                 decoder_position_ids = (
                     torch.ones_like(
@@ -246,7 +246,25 @@ def batch_recognition(
         sequence_scores = torch.sum(sequence_scores, dim=-1) / torch.sum(
             sequence_scores != 0, dim=-1
         )
-        detected_text = processor.tokenizer.batch_decode(batch_predictions)
+
+        batch_predictions: List[List[int]] = [x.tolist() for x in batch_predictions]
+
+        def cut_predictions(predictions: list[int]):
+            try:
+                eos_idx = predictions.index(processor.tokenizer.eos_id)
+                pad_idx = predictions.index(processor.tokenizer.pad_id)
+                min_idx = min(eos_idx, pad_idx)
+                return predictions[:min_idx]
+            except ValueError:
+                return predictions
+
+        batch_predictions = [cut_predictions(pred) for pred in batch_predictions]
+
+        detected_text = [processor.tokenizer.decode(pred) for pred in batch_predictions]
+        detected_text = [
+            x.split(processor.tokenizer.eos_token)[0] for x in detected_text
+        ]
+
         detected_text = [truncate_repetitions(dt) for dt in detected_text]
 
         # Postprocess to fix LaTeX output (add $$ signs, etc)

@@ -9,6 +9,7 @@ from surya.model.recognition.model import load_model as load_recognition_model
 from surya.model.recognition.processor import (
     load_processor as load_recognition_processor,
 )
+from torch.profiler import profile, record_function, ProfilerActivity
 from surya.ocr import run_recognition
 from surya.postprocessing.text import draw_text_on_image
 from surya.settings import settings
@@ -125,13 +126,21 @@ def main():
         )
 
     start = time.time()
-    predictions_by_image = run_recognition(
-        images,
-        lang_list if args.specify_language else n_list,
-        rec_model,
-        rec_processor,
-        bboxes=bboxes,
-    )
+
+    with profile(
+        activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+        profile_memory=False,
+        record_shapes=True,
+    ) as prof:
+        predictions_by_image = run_recognition(
+            images,
+            lang_list if args.specify_language else n_list,
+            rec_model,
+            rec_processor,
+            bboxes=bboxes,
+        )
+    prof.export_chrome_trace("trace.json")
+
     surya_time = time.time() - start
 
     surya_scores = defaultdict(list)

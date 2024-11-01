@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, Tuple, Union
 
+from einops import rearrange
 import torch
 import torch.nn.attention.flex_attention
 import torch.utils.checkpoint
@@ -16,8 +17,9 @@ from transformers.activations import ACT2FN
 from transformers.modeling_attn_mask_utils import AttentionMaskConverter
 from transformers.modeling_outputs import BaseModelOutputWithNoAttention, CausalLMOutput
 from transformers.pytorch_utils import ALL_LAYERNORM_LAYERS
-
+from flash_attn.layers.rotary import apply_rotary_emb, apply_rotary_emb_kv_
 from surya.settings import settings
+from flash_attn.ops.triton.rotary import apply_rotary
 
 _MAX_SQRT_GRADIENT = 1000.0
 
@@ -30,23 +32,32 @@ class OCRModelOutput(ModelOutput):
 
 
 class SuryaOCRDecoderRMSNorm(nn.Module):
-    def __init__(self, dim: int, eps: float = 1e-6):
+    # def __init__(self, dim: int, eps: float = 1e-6):
+    #     super().__init__()
+    #     self.eps = eps
+    #     self.weight = nn.Parameter(torch.zeros(dim))
+
+    # def _norm(self, x):
+    #     return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+
+    # def forward(self, x):
+    #     output = self._norm(x.float())
+    #     # Llama does x.to(float16) * w whilst SuryaOCRDecoder is (x * w).to(float16)
+    #     # See https://github.com/huggingface/transformers/pull/29402
+    #     output = output * (1.0 + self.weight.float())
+    #     return output.type_as(x)
+
+    # def extra_repr(self):
+    #     return f"{tuple(self.weight.shape)}, eps={self.eps}"
+
+    def __init__(self, hidden_size: int, eps: float = 1e-6):
         super().__init__()
         self.eps = eps
-        self.weight = nn.Parameter(torch.zeros(dim))
-
-    def _norm(self, x):
-        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+        self.weight = nn.Parameter(torch.zeros(hidden_size))
+        self.rmsnorm = torch.nn.RMSNorm(hidden_size, eps=eps)
 
     def forward(self, x):
-        output = self._norm(x.float())
-        # Llama does x.to(float16) * w whilst SuryaOCRDecoder is (x * w).to(float16)
-        # See https://github.com/huggingface/transformers/pull/29402
-        output = output * (1.0 + self.weight.float())
-        return output.type_as(x)
-
-    def extra_repr(self):
-        return f"{tuple(self.weight.shape)}, eps={self.eps}"
+        return (self.rmsnorm(x.float()) * (1.0 + self.weight.float())).type_as(x)
 
 
 ALL_LAYERNORM_LAYERS.append(SuryaOCRDecoderRMSNorm)
@@ -65,9 +76,8 @@ class SuryaOCRDecoderRotaryEmbedding(nn.Module):
 
     @torch.no_grad()
     # Copied from transformers.models.gemma.modeling_gemma.GemmaRotaryEmbedding.forward with Gemma->SuryaOCRDecoder
-    def forward(self, x, position_ids, seq_len=None):
-        # x: [bs, num_attention_heads, seq_len, head_size]
-        self.inv_freq.to(x.device)
+    def forward(self, q, k, position_ids, seq_len=None):
+        self.inv_freq.to(q.device)
         inv_freq_expanded = (
             self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
         )
@@ -79,7 +89,12 @@ class SuryaOCRDecoderRotaryEmbedding(nn.Module):
         emb = torch.cat((freqs, freqs), dim=-1)
         cos = emb.cos()
         sin = emb.sin()
-        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
+
+        q_embed, k_embed = apply_rotary_pos_emb(
+            q, k, cos.to(dtype=q.dtype), sin.to(dtype=k.dtype)
+        )
+
+        return q_embed, k_embed
 
 
 # Copied from transformers.models.llama.modeling_llama.rotate_half
@@ -163,10 +178,6 @@ class SuryaOCRDecoderSdpaCrossAttention(nn.Module):
         )
         self.o_proj = nn.Linear(
             self.num_attention_heads * self.head_dim, self.hidden_size, bias=True
-        )
-        self.rotary_emb = SuryaOCRDecoderRotaryEmbedding(
-            self.head_dim,
-            base=config.rope_theta,
         )
 
     def forward(
@@ -292,10 +303,12 @@ class SuryaOCRDecoderSdpaAttention(nn.Module):
             bsz, q_len, self.num_key_value_heads, self.head_dim
         ).transpose(1, 2)
 
-        cos, sin = self.rotary_emb(value_states, position_ids, seq_len=None)
-        query_states, key_states = apply_rotary_pos_emb(
-            query_states, key_states, cos, sin
+        query_states, key_states = self.rotary_emb(
+            query_states, key_states, position_ids, seq_len=None
         )
+        # query_states, key_states = apply_rotary_pos_emb(
+        #     query_states, key_states, cos, sin
+        # )
 
         if use_cache and hasattr(self, "key_states"):
             cache_kwargs = {
