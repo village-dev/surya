@@ -82,7 +82,7 @@ def batch_detection(
             split_index.extend([image_idx] * len(image_parts))
             split_heights.extend(split_height)
 
-        image_splits = [prepare_image_detection(image, processor) for image in image_splits]
+        image_splits = [prepare_image_detection(image, processor, model.device) for image in image_splits]
         # Batch images in dim 0
         batch = torch.stack(image_splits, dim=0).to(model.dtype).to(model.device)
         if static_cache:
@@ -97,29 +97,48 @@ def batch_detection(
         if current_shape != correct_shape:
             logits = F.interpolate(logits, size=correct_shape, mode='bilinear', align_corners=False)
 
-        logits = logits.cpu().detach().numpy().astype(np.float32)
         preds = []
+        pred_p90s: list[torch.Tensor] = []
+        
         for i, (idx, height) in enumerate(zip(split_index, split_heights)):
             # If our current prediction length is below the image idx, that means we have a new image
             # Otherwise, we need to add to the current image
+            pred_heatmaps = logits[i][range(heatmap_count)]
+
             if len(preds) <= idx:
-                preds.append([logits[i][k] for k in range(heatmap_count)])
+                preds.append(pred_heatmaps)
+                pred_p90s.append(
+                    torch.quantile(
+                        pred_heatmaps.view(pred_heatmaps.shape[0], -1).to(
+                            torch.float32
+                        ),
+                        0.9,
+                        dim=1,
+                    )
+                )
             else:
                 heatmaps = preds[idx]
-                pred_heatmaps = [logits[i][k] for k in range(heatmap_count)]
 
                 if height < processor.size["height"]:
-                    # Cut off padding to get original height
-                    pred_heatmaps = [pred_heatmap[:height, :] for pred_heatmap in pred_heatmaps]
+                    pred_heatmaps = pred_heatmaps[:, :height, :]
 
-                for k in range(heatmap_count):
-                    heatmaps[k] = np.vstack([heatmaps[k], pred_heatmaps[k]])
+                heatmaps.extend(pred_heatmaps)
+
                 preds[idx] = heatmaps
+                pred_p90s[idx] = torch.quantile(
+                    torch.cat(heatmaps).view(len(heatmaps), -1).to(torch.float32),
+                    0.9,
+                    dim=1,
+                )
+                
+        preds = [x.float().cpu().detach().numpy() for x in preds]
+        pred_p90s = [x.float().cpu().detach().numpy() for x in pred_p90s]
 
-        yield preds, [orig_sizes[j] for j in batch_image_idxs]
+        yield preds, pred_p90s,[orig_sizes[j] for j in batch_image_idxs]
 
 
-def parallel_get_lines(preds, orig_sizes, include_maps=False):
+def parallel_get_lines(preds, pred_p90s, orig_sizes, include_maps=False):
+    heatmap_p90 = pred_p90s[0]
     heatmap, affinity_map = preds
     heat_img, aff_img = None, None
     if include_maps:
@@ -127,7 +146,7 @@ def parallel_get_lines(preds, orig_sizes, include_maps=False):
         aff_img = Image.fromarray((affinity_map * 255).astype(np.uint8))
     affinity_size = list(reversed(affinity_map.shape))
     heatmap_size = list(reversed(heatmap.shape))
-    bboxes = get_and_clean_boxes(heatmap, heatmap_size, orig_sizes)
+    bboxes = get_and_clean_boxes(heatmap, heatmap_p90, heatmap_size, orig_sizes)
     vertical_lines = get_vertical_lines(affinity_map, affinity_size, orig_sizes)
 
     result = TextDetectionResult(
@@ -148,8 +167,8 @@ def batch_text_detection(images: List, model, processor, batch_size=None, includ
     parallelize = not settings.IN_STREAMLIT and len(images) >= settings.DETECTOR_MIN_PARALLEL_THRESH
     executor = ThreadPoolExecutor if parallelize else FakeExecutor
     with executor(max_workers=max_workers) as e:
-        for preds, orig_sizes in detection_generator:
-            for pred, orig_size in zip(preds, orig_sizes):
-                postprocessing_futures.append(e.submit(parallel_get_lines, pred, orig_size, include_maps))
+        for preds, pred_p90s, orig_sizes in detection_generator:
+            for pred, pred_p90, orig_size in zip(preds, pred_p90s, orig_sizes):
+                postprocessing_futures.append(e.submit(parallel_get_lines, pred, pred_p90, orig_size, include_maps))
 
     return [future.result() for future in postprocessing_futures]

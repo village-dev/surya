@@ -56,7 +56,7 @@ def batch_recognition(images: List[Image.Image], languages: List[List[str] | Non
         batch_langs = languages[i:i+real_batch_size]
         has_math = [lang and "_math" in lang for lang in batch_langs]
 
-        processed_batch = processor(text=[""] * len(batch_images), images=batch_images, langs=batch_langs)
+        processed_batch = processor(text=[""] * len(batch_images), images=batch_images, langs=batch_langs, model_device=model.device)
 
         batch_pixel_values = processed_batch["pixel_values"]
         batch_langs = processed_batch["langs"]
@@ -70,15 +70,22 @@ def batch_recognition(images: List[Image.Image], languages: List[List[str] | Non
                 batch_decoder_input[idx] = [processor.tokenizer.pad_id] * padding_length + tokens
         current_batch_size = len(batch_pixel_values)
 
-        batch_pixel_values = torch.tensor(np.stack(batch_pixel_values, axis=0), dtype=model.dtype, device=model.device)
-        batch_decoder_input = torch.tensor(np.stack(batch_decoder_input, axis=0), dtype=torch.long, device=model.device)
+        batch_pixel_values = torch.stack(batch_pixel_values).to(model.dtype)
+        batch_decoder_input = torch.tensor(batch_decoder_input, dtype=torch.long, device=model.device)
         if settings.RECOGNITION_STATIC_CACHE:
             batch_pixel_values = pad_to_batch_size(batch_pixel_values, batch_size)
             batch_decoder_input = pad_to_batch_size(batch_decoder_input, batch_size)
 
         token_count = 0
         inference_token_count = batch_decoder_input.shape[-1]
-        batch_predictions = [[] for _ in range(current_batch_size)]
+        
+        batch_predictions = torch.zeros(
+            current_batch_size,
+            settings.RECOGNITION_MAX_TOKENS,
+            dtype=torch.long,
+            device=model.device,
+        )
+        prediction_idx = 0
 
         decoder_position_ids = torch.ones_like(batch_decoder_input[0, :], dtype=torch.int64, device=model.device).cumsum(0) - 1
         model.decoder.model._setup_cache(model.config, batch_size, model.device, model.dtype)
@@ -149,10 +156,9 @@ def batch_recognition(images: List[Image.Image], languages: List[List[str] | Non
                     break
 
                 batch_decoder_input = preds.unsqueeze(1)
-
-                for j, (pred, status) in enumerate(zip(preds, all_done)):
-                    if not status:
-                        batch_predictions[j].append(int(pred))
+                
+                batch_predictions[:, prediction_idx] = preds
+                prediction_idx += 1
 
                 token_count += inference_token_count
                 inference_token_count = batch_decoder_input.shape[-1]
@@ -163,7 +169,25 @@ def batch_recognition(images: List[Image.Image], languages: List[List[str] | Non
                     batch_decoder_input = pad_to_batch_size(batch_decoder_input, batch_size)
 
         sequence_scores = torch.sum(sequence_scores, dim=-1) / torch.sum(sequence_scores != 0, dim=-1)
-        detected_text = processor.tokenizer.batch_decode(batch_predictions)
+        
+        batch_predictions_list: list[list[int]] = [
+            x.tolist() for x in batch_predictions
+        ]
+
+        def cut_predictions(predictions: list[int]):
+            try:
+                eos_idx = predictions.index(processor.tokenizer.eos_id)
+                pad_idx = predictions.index(processor.tokenizer.pad_id)
+                min_idx = min(eos_idx, pad_idx)
+                return predictions[:min_idx]
+            except ValueError:
+                return predictions
+
+        batch_predictions_list = [
+            cut_predictions(pred) for pred in batch_predictions_list
+        ]
+        
+        detected_text = processor.tokenizer.batch_decode(batch_predictions_list)
         detected_text = [truncate_repetitions(dt) for dt in detected_text]
 
         # Postprocess to fix LaTeX output (add $$ signs, etc)

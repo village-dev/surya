@@ -10,7 +10,8 @@ import numpy as np
 from PIL import Image
 import PIL
 from surya.settings import settings
-
+import torchvision
+import torch
 
 class SuryaEncoderImageProcessor(DonutImageProcessor):
     def __init__(self, *args, max_size=None, align_long_axis=False, **kwargs):
@@ -29,50 +30,46 @@ class SuryaEncoderImageProcessor(DonutImageProcessor):
 
         return resized_image
 
-    def process_inner(self, images: List[np.ndarray]):
-        assert images[0].shape[2] == 3 # RGB input images, channel dim last
-
-        if self.do_align_long_axis:
-            # Rotate if the bbox is wider than it is tall
-            images = [SuryaEncoderImageProcessor.align_long_axis(image, size=self.max_size, input_data_format=ChannelDimension.LAST) for image in images]
-
-            # Verify that the image is wider than it is tall
-            for img in images:
-                assert img.shape[1] >= img.shape[0]
-
-        # This also applies the right channel dim format, to channel x height x width
-        images = [SuryaEncoderImageProcessor.numpy_resize(img, self.max_size, self.resample) for img in images]
-        assert images[0].shape[0] == 3 # RGB input images, channel dim first
-
-        # Convert to float32 for rescale/normalize
-        images = [img.astype(np.float32) for img in images]
-
-        # Pads with 255 (whitespace)
-        # Pad to max size to improve performance
-        max_size = self.max_size
+    def process_inner(self, images: List[Image.Image], model_device: torch.device):
         images = [
-            SuryaEncoderImageProcessor.pad_image(
-                image=image,
-                size=max_size,
-                input_data_format=ChannelDimension.FIRST,
-                pad_value=settings.RECOGNITION_PAD_VALUE
-            )
+            SuryaEncoderImageProcessor.align_long_axis(image, size=self.max_size)  # type: ignore
             for image in images
         ]
-        # Rescale and normalize
-        for idx in range(len(images)):
-            images[idx] = (images[idx].astype(np.float64) * self.rescale_factor).astype(np.float32)
 
-        images = [
-            SuryaEncoderImageProcessor.normalize(img, mean=self.image_mean, std=self.image_std, input_data_format=ChannelDimension.FIRST)
+        image_arrays = [
+            torchvision.transforms.functional.pil_to_tensor(img).to(model_device)
             for img in images
         ]
 
-        return images
+        image_arrays = [
+            torchvision.transforms.functional.resize(
+                img,
+                [self.max_size["height"], self.max_size["width"]],  # type: ignore
+                interpolation=torchvision.transforms.InterpolationMode.BICUBIC,
+                antialias=True,
+            )
+            for img in image_arrays
+        ]
+
+        # Rescale and normalize
+        for idx in range(len(image_arrays)):
+            image_arrays[idx] = image_arrays[idx] * self.rescale_factor
+
+        image_arrays = [
+            torchvision.transforms.functional.normalize(
+                img,
+                mean=self.image_mean,  # type: ignore
+                std=self.image_std,  # type: ignore
+            )
+            for img in image_arrays
+        ]
+
+        return image_arrays
 
     def preprocess(
         self,
         images: ImageInput,
+        model_device: torch.device = None,
         do_resize: bool = None,
         size: Dict[str, int] = None,
         resample: PILImageResampling = None,
@@ -90,11 +87,8 @@ class SuryaEncoderImageProcessor(DonutImageProcessor):
         input_data_format: Optional[Union[str, ChannelDimension]] = None,
         **kwargs,
     ) -> PIL.Image.Image:
-        images = make_list_of_images(images)
-
         # Convert to numpy for later processing steps
-        images = [np.array(img) for img in images]
-        images = self.process_inner(images)
+        images = self.process_inner(images, model_device)
 
         data = {"pixel_values": images}
         return BatchFeature(data=data, tensor_type=return_tensors)
@@ -122,37 +116,20 @@ class SuryaEncoderImageProcessor(DonutImageProcessor):
         pad_bottom = delta_height - pad_top
         pad_right = delta_width - pad_left
 
-        padding = ((pad_top, pad_bottom), (pad_left, pad_right))
-        return pad(image, padding, data_format=data_format, input_data_format=input_data_format, constant_values=pad_value)
+        padding = [pad_left, pad_top, pad_right, pad_bottom]
+        return torchvision.transforms.functional.pad(image, padding, pad_value)
 
     @classmethod
-    def align_long_axis(
+    def align_long_axis(  # type: ignore
         cls,
-        image: np.ndarray,
-        size: Dict[str, int],
-        data_format: Optional[Union[str, ChannelDimension]] = None,
-        input_data_format: Optional[Union[str, ChannelDimension]] = None,
-    ) -> np.ndarray:
-        input_height, input_width = image.shape[:2]
+        image: Image.Image,
+        size: dict[str, int],
+    ) -> Image.Image:
+        input_width, input_height = image.size
         output_height, output_width = size["height"], size["width"]
 
         if (output_width < output_height and input_width > input_height) or (
             output_width > output_height and input_width < input_height
         ):
-            image = np.rot90(image, 3)
-
+            image = image.rotate(270, expand=True)
         return image
-
-    @classmethod
-    def normalize(
-        cls,
-        image: np.ndarray,
-        mean: Union[float, Iterable[float]],
-        std: Union[float, Iterable[float]],
-        data_format: Optional[Union[str, ChannelDimension]] = None,
-        input_data_format: Optional[Union[str, ChannelDimension]] = None,
-        **kwargs,
-    ) -> np.ndarray:
-        return normalize(
-            image, mean=mean, std=std, data_format=data_format, input_data_format=input_data_format, **kwargs
-        )

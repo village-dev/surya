@@ -1,5 +1,6 @@
-from typing import List
-
+from typing import List, cast
+from numpy.typing import NDArray
+import torch
 import numpy as np
 import cv2
 from PIL import ImageDraw, ImageFont
@@ -8,6 +9,35 @@ from surya.postprocessing.fonts import get_font_path
 from surya.schema import PolygonBox
 from surya.settings import settings
 from surya.postprocessing.text import get_text_size
+
+
+def min_area_rect_cuda_batch(tensors: list[torch.Tensor]) -> torch.Tensor:
+    import cvcuda
+
+    # stack all inputs w/ padding to max length
+    max_len = max(t.shape[0] for t in tensors)
+    padded = torch.stack(
+        [torch.nn.functional.pad(t, (0, 0, 0, max_len - t.shape[0])) for t in tensors]
+    )
+
+    # convert to cvcuda fmt
+    src_cvcuda = cvcuda.as_tensor(padded.to(torch.int32).contiguous().cuda(), "NWC")
+
+    # track original lengths
+    lengths = cvcuda.as_tensor(
+        torch.tensor([t.shape[0] for t in tensors])
+        .to(torch.int32)
+        .unsqueeze(0)
+        .contiguous()
+        .cuda(),
+        "NW",
+    )
+
+    # calc rects
+    result_cvcuda = cvcuda.minarearect(src_cvcuda, lengths, len(tensors))
+
+    # back to torch, reshape to (batch, 4, 2)
+    return torch.as_tensor(result_cvcuda.cuda()).reshape(-1, 4, 2)
 
 
 def keep_largest_boxes(boxes: List[PolygonBox]) -> List[PolygonBox]:
@@ -71,11 +101,15 @@ def clean_boxes(boxes: List[PolygonBox]) -> List[PolygonBox]:
     return new_boxes
 
 
-def get_dynamic_thresholds(linemap, text_threshold, low_text, typical_top10_avg=0.7):
-    # Find average intensity of top 10% pixels
-    flat_map = linemap.ravel()
-    top_10_count = int(len(flat_map) * 0.9)
-    avg_intensity = np.mean(np.partition(flat_map, top_10_count)[top_10_count:])
+def get_dynamic_thresholds(
+    linemap: NDArray[np.float32],
+    linemap_p90: float,
+    text_threshold: float,
+    low_text: float,
+    typical_top10_avg: float = 0.7,
+) -> tuple[float, float]:
+    avg_intensity = cast(float, np.mean(linemap[linemap > linemap_p90]))
+
     scaling_factor = np.clip(avg_intensity / typical_top10_avg, 0, 1) ** (1 / 2)
 
     low_text = np.clip(low_text * scaling_factor, 0.1, 0.6)
@@ -84,19 +118,31 @@ def get_dynamic_thresholds(linemap, text_threshold, low_text, typical_top10_avg=
     return text_threshold, low_text
 
 
-def detect_boxes(linemap, text_threshold, low_text):
+def detect_boxes(
+    linemap: NDArray[np.float32],
+    textmap_p90: float,
+    text_threshold: float,
+    low_text: float,
+) -> tuple[list[NDArray[np.float32]], list[float]]:
     # From CRAFT - https://github.com/clovaai/CRAFT-pytorch
     # Modified to return boxes and for speed, accuracy
     img_h, img_w = linemap.shape
 
-    text_threshold, low_text = get_dynamic_thresholds(linemap, text_threshold, low_text)
+    text_threshold, low_text = get_dynamic_thresholds(
+        linemap, textmap_p90, text_threshold, low_text
+    )
 
     text_score_comb = (linemap > low_text).astype(np.uint8)
-    label_count, labels, stats, centroids = cv2.connectedComponentsWithStats(text_score_comb, connectivity=4)
+    label_count, labels, stats, centroids = cv2.connectedComponentsWithStats(
+        text_score_comb, connectivity=4
+    )
 
     det = []
     confidences = []
     max_confidence = 0
+
+    line_maxes = []
+    contours: list[NDArray[np.int32]] = []
 
     for k in range(1, label_count):
         # size filtering
@@ -105,19 +151,26 @@ def detect_boxes(linemap, text_threshold, low_text):
             continue
 
         # make segmentation map
-        x, y, w, h = stats[k, [cv2.CC_STAT_LEFT, cv2.CC_STAT_TOP, cv2.CC_STAT_WIDTH, cv2.CC_STAT_HEIGHT]]
+        x, y, width, height = stats[
+            k,
+            [cv2.CC_STAT_LEFT, cv2.CC_STAT_TOP, cv2.CC_STAT_WIDTH, cv2.CC_STAT_HEIGHT],
+        ]
 
         try:
-            niter = int(np.sqrt(min(w, h)))
+            niter = int(np.sqrt(min(width, height)))
         except ValueError:
             niter = 0
 
         buffer = 1
         sx, sy = max(0, x - niter - buffer), max(0, y - niter - buffer)
-        ex, ey = min(img_w, x + w + niter + buffer), min(img_h, y + h + niter + buffer)
+        ex, ey = (
+            min(img_w, x + width + niter + buffer),
+            min(img_h, y + height + niter + buffer),
+        )
 
-        mask = (labels[sy:ey, sx:ex] == k)
+        mask = labels[sy:ey, sx:ex] == k
         line_max = np.max(linemap[sy:ey, sx:ex][mask])
+        line_maxes.append(line_max)
 
         # thresholding
         if line_max < text_threshold:
@@ -134,16 +187,30 @@ def detect_boxes(linemap, text_threshold, low_text):
         x_inds += sx
         y_inds += sy
         np_contours = np.column_stack((x_inds, y_inds))
-        rectangle = cv2.minAreaRect(np_contours)
-        box = cv2.boxPoints(rectangle)
 
+        contours.append(np_contours)
+
+    if len(contours) == 0:
+        return [], []
+
+    torch_contours = [torch.from_numpy(c) for c in contours]
+
+    boxes = min_area_rect_cuda_batch(torch_contours)
+    boxes = boxes.cpu().numpy()
+
+    for np_contours, box, line_max in zip(contours, boxes, line_maxes):
         # align diamond-shape
-        w, h = np.linalg.norm(box[0] - box[1]), np.linalg.norm(box[1] - box[2])
-        box_ratio = max(w, h) / (min(w, h) + 1e-5)
+        width, height = np.linalg.norm(box[0] - box[1]), np.linalg.norm(box[1] - box[2])
+        width, height = cast(float, width), cast(float, height)
+
+        box_ratio = max(width, height) / (min(width, height) + 1e-5)
         if abs(1 - box_ratio) <= 0.1:
-            l, r = np_contours[:, 0].min(), np_contours[:, 0].max()
-            t, b = np_contours[:, 1].min(), np_contours[:, 1].max()
-            box = np.array([[l, t], [r, t], [r, b], [l, b]], dtype=np.float32)
+            left, right = np_contours[:, 0].min(), np_contours[:, 0].max()
+            top, bottom = np_contours[:, 1].min(), np_contours[:, 1].max()
+            box = np.array(
+                [[left, top], [right, top], [right, bottom], [left, bottom]],
+                dtype=np.float32,
+            )
 
         # make clock-wise order
         startidx = box.sum(axis=1).argmin()
@@ -159,7 +226,7 @@ def detect_boxes(linemap, text_threshold, low_text):
     return det, confidences
 
 
-def get_detected_boxes(textmap, text_threshold=None, low_text=None) -> List[PolygonBox]:
+def get_detected_boxes(textmap, textmap_p90, text_threshold=None, low_text=None) -> List[PolygonBox]:
     if text_threshold is None:
         text_threshold = settings.DETECTOR_TEXT_THRESHOLD
     if low_text is None:
@@ -168,13 +235,13 @@ def get_detected_boxes(textmap, text_threshold=None, low_text=None) -> List[Poly
     if textmap.dtype != np.float32:
         textmap = textmap.astype(np.float32)
 
-    boxes, confidences = detect_boxes(textmap, text_threshold, low_text)
+    boxes, confidences = detect_boxes(textmap, textmap_p90, text_threshold, low_text)
     # From point form to box form
     return [PolygonBox(polygon=box, confidence=confidence) for box, confidence in zip(boxes, confidences)]
 
 
-def get_and_clean_boxes(textmap, processor_size, image_size, text_threshold=None, low_text=None) -> List[PolygonBox]:
-    bboxes = get_detected_boxes(textmap, text_threshold, low_text)
+def get_and_clean_boxes(textmap, textmap_p90, processor_size, image_size, text_threshold=None, low_text=None) -> List[PolygonBox]:
+    bboxes = get_detected_boxes(textmap, textmap_p90, text_threshold, low_text)
     for bbox in bboxes:
         bbox.rescale(processor_size, image_size)
         bbox.fit_to_bounds([0, 0, image_size[0], image_size[1]])

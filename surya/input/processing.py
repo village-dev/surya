@@ -7,7 +7,7 @@ import pypdfium2
 from PIL import Image, ImageOps, ImageDraw
 import torch
 from surya.settings import settings
-
+import torchvision
 
 def convert_if_not_rgb(images: List[Image.Image]) -> List[Image.Image]:
     new_images = []
@@ -52,17 +52,15 @@ def split_image(img, processor):
     return [img.copy()], [img_height]
 
 
-def prepare_image_detection(img, processor):
+def prepare_image_detection(img, processor, model_device):
     new_size = (processor.size["width"], processor.size["height"])
 
-    # This double resize actually necessary for downstream accuracy
-    img.thumbnail(new_size, Image.Resampling.LANCZOS)
-    img = img.resize(new_size, Image.Resampling.LANCZOS) # Stretch smaller dimension to fit new size
-
-    img = np.asarray(img, dtype=np.uint8)
-    img = processor(img)["pixel_values"][0]
-    img = torch.from_numpy(img)
-    return img
+    # permute from HWC to CHW
+    img_arr = torchvision.transforms.functional.pil_to_tensor(img).to(model_device)
+    img_arr = torchvision.transforms.functional.resize(img_arr, new_size, antialias=True)
+    img_arr = processor([img_arr])["pixel_values"][0]
+    
+    return img_arr
 
 
 def open_pdf(pdf_filepath):

@@ -15,7 +15,7 @@ from transformers.image_utils import (
     make_list_of_images,
 )
 from transformers.utils import TensorType
-
+import torchvision
 
 import PIL.Image
 import torch
@@ -135,11 +135,24 @@ class SegformerImageProcessor(BaseImageProcessor):
         input_data_format: Optional[Union[str, ChannelDimension]] = None,
     ):
 
+        # if do_rescale:
+        #     image = self.rescale(image=image, scale=rescale_factor, input_data_format=input_data_format)
+
+        # if do_normalize:
+        #     image = self.normalize(image=image, mean=image_mean, std=image_std, input_data_format=input_data_format)
+
+        # return image
+        
         if do_rescale:
-            image = self.rescale(image=image, scale=rescale_factor, input_data_format=input_data_format)
+            image = image * rescale_factor
 
         if do_normalize:
-            image = self.normalize(image=image, mean=image_mean, std=image_std, input_data_format=input_data_format)
+            # channels first
+            image = torchvision.transforms.functional.normalize(
+                image,
+                image_mean,  # type: ignore
+                image_std,  # type: ignore
+            )
 
         return image
 
@@ -159,8 +172,8 @@ class SegformerImageProcessor(BaseImageProcessor):
     ) -> np.ndarray:
         """Preprocesses a single image."""
         # All transformations expect numpy arrays.
-        if input_data_format is None:
-            input_data_format = infer_channel_dimension_format(image)
+        # if input_data_format is None:
+        #     input_data_format = infer_channel_dimension_format(image)
 
         image = self._preprocess(
             image=image,
@@ -174,8 +187,8 @@ class SegformerImageProcessor(BaseImageProcessor):
             image_std=image_std,
             input_data_format=input_data_format,
         )
-        if data_format is not None:
-            image = to_channel_dimension_format(image, data_format, input_channel_dim=input_data_format)
+        # if data_format is not None:
+        #     image = to_channel_dimension_format(image, data_format, input_channel_dim=input_data_format)
         return image
 
     def __call__(self, images, segmentation_maps=None, **kwargs):
