@@ -1,6 +1,6 @@
 [project]
 name = "surya-ocr"
-version = "0.6.12"
+version = "0.8.0"
 description = "OCR, layout, reading order, and table recognition in 90+ languages"
 authors = [{ name = "Vik Paruchuri", email = "vik.paruchuri@gmail.com" }]
 readme = "README.md"
