@@ -120,13 +120,14 @@ def batch_detection(
                 heatmaps = preds[idx]
 
                 if height < processor.size["height"]:
+                    # Cut off padding to get original height
                     pred_heatmaps = pred_heatmaps[:, :height, :]
 
-                heatmaps.extend(pred_heatmaps)
+                heatmaps = torch.cat([heatmaps, pred_heatmaps], dim=1)
 
                 preds[idx] = heatmaps
                 pred_p90s[idx] = torch.quantile(
-                    torch.cat(heatmaps).view(len(heatmaps), -1).to(torch.float32),
+                    heatmaps.view(len(heatmaps), -1).to(torch.float32),
                     0.9,
                     dim=1,
                 )
@@ -134,7 +135,7 @@ def batch_detection(
         preds = [x.float().cpu().detach().numpy() for x in preds]
         pred_p90s = [x.float().cpu().detach().numpy() for x in pred_p90s]
 
-        yield preds, pred_p90s,[orig_sizes[j] for j in batch_image_idxs]
+        yield preds, pred_p90s, [orig_sizes[j] for j in batch_image_idxs]
 
 
 def parallel_get_lines(preds, pred_p90s, orig_sizes, include_maps=False):
