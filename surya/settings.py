@@ -65,7 +65,7 @@ class Settings(BaseSettings):
     RECOGNITION_ENCODER_BATCH_DIVISOR: int = 1 # Divisor for batch size in decoder
 
     # Layout
-    LAYOUT_MODEL_CHECKPOINT: str = "datalab-to/surya_layout0"
+    LAYOUT_MODEL_CHECKPOINT: str = "datalab-to/surya_layout"
     LAYOUT_IMAGE_SIZE: Dict = {"height": 768, "width": 768}
     LAYOUT_SLICE_MIN: Dict = {"height": 1500, "width": 1500} # When to start slicing images
     LAYOUT_SLICE_SIZE: Dict = {"height": 1200, "width": 1200} # Size of slices
@@ -83,6 +83,11 @@ class Settings(BaseSettings):
     TABLE_REC_BATCH_SIZE: Optional[int] = None
     TABLE_REC_BENCH_DATASET_NAME: str = "vikp/fintabnet_bench"
     COMPILE_TABLE_REC: bool = False
+
+    # OCR Error Detection
+    OCR_ERROR_MODEL_CHECKPOINT: str = "datalab-to/ocr_error_detection"
+    OCR_ERROR_BATCH_SIZE: Optional[int] = None
+    COMPILE_OCR_ERROR: bool = False
 
     # Tesseract (for benchmarks only)
     TESSDATA_PREFIX: Optional[str] = None
@@ -104,6 +109,10 @@ class Settings(BaseSettings):
     @computed_field
     def TABLE_REC_STATIC_CACHE(self) -> bool:
         return self.COMPILE_ALL or self.COMPILE_TABLE_REC
+
+    @computed_field
+    def OCR_ERROR_STATIC_CACHE(self) -> bool:
+        return self.COMPILE_ALL or self.COMPILE_OCR_ERROR
 
     @computed_field
     @property
